@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --turbopack)",
+      "Read(//c/Users/Matias/Desktop/**)",
+      "Bash(npx create-next-app@latest app-familia --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --turbopack)",
+      "Bash(printf \"No\\\\nNo\\\\n\")",
+      "Bash(yes \"No\")",
+      "Bash(cp -r \"C:/Users/Matias/Desktop/app-familia/\"* \"C:/Users/Matias/Desktop/APPFamilia/\")",
+      "Bash(cp -r \"C:/Users/Matias/Desktop/app-familia/\".* \"C:/Users/Matias/Desktop/APPFamilia/\")",
+      "Bash(rm -rf \"C:/Users/Matias/Desktop/app-familia\")",
+      "Bash(npm install:*)"
+    ]
+  }
+}
