@@ -52,19 +52,18 @@ export default function OnboardingPage() {
       const dn = displayName.trim() || user.email?.split("@")[0] || "Usuario"
       if (groupAction === "create" && groupName.trim()) {
         const invite_code = Math.random().toString(36).substring(2, 8).toUpperCase()
-        const { data: group } = await supabase
+        const groupId = crypto.randomUUID()
+        const { error: groupError } = await supabase
           .from("groups")
-          .insert({ name: groupName.trim(), created_by: user.id, invite_code })
-          .select()
-          .single()
-        if (group) {
+          .insert({ id: groupId, name: groupName.trim(), created_by: user.id, invite_code })
+        if (!groupError) {
           await supabase.from("group_members").insert({
-            group_id: group.id,
+            group_id: groupId,
             user_id: user.id,
             role: "admin",
             display_name: dn,
           })
-          try { localStorage.setItem("current_group_id", group.id) } catch {}
+          try { localStorage.setItem("current_group_id", groupId) } catch {}
         }
       } else if (groupAction === "join" && inviteCode.trim()) {
         const { data: group } = await supabase

@@ -258,21 +258,26 @@ export function useGroups(userId: string | null) {
   async function createGroup(name: string, displayName: string): Promise<Group | null> {
     if (!userId) return null
     const invite_code = Math.random().toString(36).substring(2, 8).toUpperCase()
-    const { data: group } = await supabase
+    const groupId = crypto.randomUUID()
+    // Insert group with pre-generated ID so we don't depend on SELECT (RLS blocks
+    // the select-after-insert because user isn't a member yet)
+    const { error: groupError } = await supabase
       .from("groups")
-      .insert({ name, created_by: userId, invite_code })
-      .select()
-      .single()
-    if (group) {
-      await supabase.from("group_members").insert({
-        group_id: group.id,
-        user_id: userId,
-        role: "admin",
-        display_name: displayName,
-      })
-      refresh()
+      .insert({ id: groupId, name, created_by: userId, invite_code })
+    if (groupError) {
+      console.error("createGroup error:", groupError)
+      return null
     }
-    return group ?? null
+    // Insert the creator as admin member
+    await supabase.from("group_members").insert({
+      group_id: groupId,
+      user_id: userId,
+      role: "admin",
+      display_name: displayName,
+    })
+    refresh()
+    // Return a minimal group object so callers can use the id immediately
+    return { id: groupId, name, created_by: userId, invite_code, created_at: new Date().toISOString() }
   }
 
   async function joinGroup(inviteCode: string, displayName: string): Promise<Group | null> {
