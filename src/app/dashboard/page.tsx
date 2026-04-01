@@ -170,11 +170,10 @@ export default function DashboardPage() {
                 data={monthlyData}
                 barGap={2}
                 barCategoryGap="20%"
-                onClick={(e) => {
-                  if (e?.activePayload?.[0]?.payload?.monthKey) {
-                    const key = e.activePayload[0].payload.monthKey as string
-                    setSelectedMonthKey((prev) => (prev === key ? null : key))
-                  }
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onClick={(e: any) => {
+                  const key = e?.activePayload?.[0]?.payload?.monthKey as string | undefined
+                  if (key) setSelectedMonthKey((prev) => (prev === key ? null : key))
                 }}
                 style={{ cursor: "pointer" }}
               >

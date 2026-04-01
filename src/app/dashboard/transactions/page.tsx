@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import React, { useState, useMemo } from "react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { createClient } from "@/lib/supabase/client"
@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -44,6 +43,7 @@ import {
   TrendingUp,
   TrendingDown,
   PiggyBank,
+  Wallet,
   RefreshCw,
   Repeat2,
 } from "lucide-react"
@@ -85,7 +85,6 @@ export default function TransactionsPage() {
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [saving, setSaving] = useState(false)
   const [isRecurring, setIsRecurring] = useState(false)
-  const [filterType, setFilterType] = useState<"all" | "income" | "expense" | "saving">("all")
   const [displayCurrency, setDisplayCurrency] = useState<"ARS" | "USD">("ARS")
   const [copying, setCopying] = useState(false)
 
@@ -214,13 +213,6 @@ export default function TransactionsPage() {
     await supabase.from("transactions").delete().eq("id", id)
     refresh()
   }
-
-  const filtered = useMemo(() => {
-    if (filterType === "all") return transactions
-    if (filterType === "saving") return transactions.filter((t) => isSavingTransaction(t.description))
-    if (filterType === "income") return transactions.filter((t) => t.type === "income")
-    return transactions.filter((t) => t.type === "expense" && !isSavingTransaction(t.description))
-  }, [transactions, filterType])
 
   const summary = useMemo(() => {
     let income = 0
@@ -465,80 +457,231 @@ export default function TransactionsPage() {
         </Card>
       </div>
 
-      <div className="flex gap-1">
-        {(["all", "income", "expense", "saving"] as const).map((f) => (
-          <Button
-            key={f}
-            variant={filterType === f ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilterType(f)}
-          >
-            {f === "all" ? "Todos" : f === "income" ? "Ingresos" : f === "expense" ? "Gastos" : "Ahorros"}
-          </Button>
-        ))}
-      </div>
+      {loading ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">Cargando...</p>
+      ) : transactions.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-sm text-muted-foreground">No hay movimientos para este mes</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <BalanceSheet
+          transactions={transactions}
+          displayCurrency={displayCurrency}
+          rate={rate}
+          onEdit={openEdit}
+          onDelete={handleDelete}
+          summary={summary}
+        />
+      )}
+    </div>
+  )
+}
 
-      <Card>
-        <CardContent className="pt-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">Cargando...</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No hay movimientos para este mes
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {filtered.map((t) => {
-                const isAhorro = isSavingTransaction(t.description)
-                const displayDesc = isAhorro
-                  ? (t.description ?? "").replace(/^\[Ahorro\]\s*/, "") || t.categories?.name || "Ahorro"
-                  : t.description || t.categories?.name || "Sin descripcion"
-                return (
-                  <div
-                    key={t.id}
-                    className="flex items-center justify-between py-3 border-b last:border-0 gap-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate flex items-center gap-1">
-                        {displayDesc}
-                        {t.is_recurring && (
-                          <Repeat2 className="h-3 w-3 text-muted-foreground shrink-0" title="Gasto fijo" />
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {format(new Date(t.date), "dd/MM/yyyy")} - {t.categories?.name}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isAhorro ? (
-                        <Badge variant="outline" className="border-cyan-500 text-cyan-600">
-                          <PiggyBank className="h-3 w-3 mr-1" />
-                          Ahorro {formatCurrency(t.amount, t.currency)}
-                        </Badge>
-                      ) : (
-                        <Badge variant={t.type === "income" ? "default" : "destructive"}>
-                          {t.type === "income" ? "+" : "-"}
-                          {formatCurrency(t.amount, t.currency)}
-                        </Badge>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(t)}>
-                        <Pencil className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleDelete(t.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+// ─── Balance Sheet Component ────────────────────────────────────────────────
+
+type Tx = import("@/types/database").TransactionWithCategory
+type Rate = import("@/types/database").ExchangeRate | null
+
+function TxRow({
+  t,
+  displayCurrency,
+  rate,
+  onEdit,
+  onDelete,
+}: {
+  t: Tx
+  displayCurrency: "ARS" | "USD"
+  rate: Rate
+  onEdit: (t: Tx) => void
+  onDelete: (id: string) => void
+}) {
+  const isAhorro = isSavingTransaction(t.description)
+  const displayDesc =
+    isAhorro
+      ? (t.description ?? "").replace(/^\[Ahorro\]\s*/, "") || "Ahorro"
+      : t.description || t.categories?.name || "Sin descripcion"
+  const amt =
+    rate && displayCurrency !== t.currency
+      ? convertCurrency(t.amount, t.currency, displayCurrency, rate)
+      : t.amount
+  return (
+    <div className="flex items-center justify-between py-2.5 px-3 gap-2 group hover:bg-muted/40 rounded transition-colors">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate flex items-center gap-1.5">
+          {displayDesc}
+          {t.is_recurring && (
+            <Repeat2 className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Fijo" />
           )}
-        </CardContent>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {format(new Date(t.date), "dd/MM/yyyy")}
+          {t.categories?.name ? ` · ${t.categories.name}` : ""}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <span
+          className={`text-sm font-semibold tabular-nums ${
+            t.type === "income" ? "text-green-600" : isAhorro ? "text-blue-600" : "text-red-600"
+          }`}
+        >
+          {t.type === "income" ? "+" : "−"}
+          {formatCurrency(amt, displayCurrency)}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={() => onEdit(t)}
+        >
+          <Pencil className="h-3 w-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={() => onDelete(t.id)}
+        >
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function BalanceSheet({
+  transactions,
+  displayCurrency,
+  rate,
+  onEdit,
+  onDelete,
+  summary,
+}: {
+  transactions: Tx[]
+  displayCurrency: "ARS" | "USD"
+  rate: Rate
+  onEdit: (t: Tx) => void
+  onDelete: (id: string) => void
+  summary: { income: number; expense: number; savingTotal: number }
+}) {
+  const incomeRows = transactions.filter((t) => t.type === "income")
+  const savingRows = transactions.filter((t) => isSavingTransaction(t.description))
+  const expenseRows = transactions.filter(
+    (t) => t.type === "expense" && !isSavingTransaction(t.description)
+  )
+
+  // Group expenses by category
+  const expenseByCategory = useMemo(() => {
+    const groups: Record<string, typeof expenseRows> = {}
+    for (const t of expenseRows) {
+      const cat = t.categories?.name ?? "Sin categoría"
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(t)
+    }
+    // Sort categories by total desc
+    return Object.entries(groups).sort(([, a], [, b]) => {
+      const sumA = a.reduce((s, t) => s + t.amount, 0)
+      const sumB = b.reduce((s, t) => s + t.amount, 0)
+      return sumB - sumA
+    })
+  }, [expenseRows])
+
+  const sobrante = summary.income - summary.expense - summary.savingTotal
+
+  const rowProps = { displayCurrency, rate, onEdit, onDelete }
+
+  return (
+    <div className="space-y-4">
+      {/* INGRESOS */}
+      {incomeRows.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="bg-green-50 dark:bg-green-950/30 border-b border-green-200 dark:border-green-800 flex items-center justify-between px-3 py-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-green-700 dark:text-green-400 flex items-center gap-1.5">
+              <TrendingUp className="h-3.5 w-3.5" /> Ingresos
+            </span>
+            <span className="text-sm font-bold text-green-700 dark:text-green-400 tabular-nums">
+              +{formatCurrency(summary.income, displayCurrency)}
+            </span>
+          </div>
+          <CardContent className="p-0">
+            {incomeRows.map((t) => (
+              <TxRow key={t.id} t={t} {...rowProps} />
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* GASTOS */}
+      {expenseRows.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-800 flex items-center justify-between px-3 py-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-red-700 dark:text-red-400 flex items-center gap-1.5">
+              <TrendingDown className="h-3.5 w-3.5" /> Gastos
+            </span>
+            <span className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
+              −{formatCurrency(summary.expense, displayCurrency)}
+            </span>
+          </div>
+          <CardContent className="p-0">
+            {expenseByCategory.map(([catName, rows]) => {
+              const catTotal = rows.reduce((s, t) => {
+                const amt = rate && displayCurrency !== t.currency
+                  ? convertCurrency(t.amount, t.currency, displayCurrency, rate)
+                  : t.amount
+                return s + amt
+              }, 0)
+              return (
+                <div key={catName} className="border-b last:border-0">
+                  {/* Category sub-header — only show if more than one category */}
+                  {expenseByCategory.length > 1 && (
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40">
+                      <span className="text-xs font-semibold text-muted-foreground">{catName}</span>
+                      <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+                        −{formatCurrency(catTotal, displayCurrency)}
+                      </span>
+                    </div>
+                  )}
+                  {rows.map((t) => (
+                    <TxRow key={t.id} t={t} {...rowProps} />
+                  ))}
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* AHORROS */}
+      {savingRows.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-800 flex items-center justify-between px-3 py-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+              <PiggyBank className="h-3.5 w-3.5" /> Ahorros
+            </span>
+            <span className="text-sm font-bold text-blue-700 dark:text-blue-400 tabular-nums">
+              −{formatCurrency(summary.savingTotal, displayCurrency)}
+            </span>
+          </div>
+          <CardContent className="p-0">
+            {savingRows.map((t) => (
+              <TxRow key={t.id} t={t} {...rowProps} />
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* SOBRANTE */}
+      <Card className={`overflow-hidden border-2 ${sobrante >= 0 ? "border-green-400 dark:border-green-600" : "border-red-400 dark:border-red-600"}`}>
+        <div className={`flex items-center justify-between px-4 py-3 ${sobrante >= 0 ? "bg-green-50 dark:bg-green-950/40" : "bg-red-50 dark:bg-red-950/40"}`}>
+          <span className={`text-sm font-bold uppercase tracking-wider flex items-center gap-2 ${sobrante >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+            <Wallet className="h-4 w-4" />
+            Sobrante del mes
+          </span>
+          <span className={`text-xl font-bold tabular-nums ${sobrante >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+            {sobrante >= 0 ? "+" : "−"}{formatCurrency(Math.abs(sobrante), displayCurrency)}
+          </span>
+        </div>
       </Card>
     </div>
   )
