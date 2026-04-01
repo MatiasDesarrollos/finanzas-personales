@@ -633,8 +633,8 @@ function BalanceSheet({
               }, 0)
               return (
                 <div key={catName} className="border-b last:border-0">
-                  {/* Category sub-header — only show if more than one category */}
-                  {expenseByCategory.length > 1 && (
+                  {/* Category sub-header — only show if this category has multiple transactions */}
+                  {rows.length > 1 && (
                     <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40">
                       <span className="text-xs font-semibold text-muted-foreground">{catName}</span>
                       <span className="text-xs font-semibold text-muted-foreground tabular-nums">

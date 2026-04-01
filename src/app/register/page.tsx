@@ -43,9 +43,7 @@ export default function RegisterPage() {
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { full_name: fullName },
-      },
+      options: { data: { full_name: fullName } },
     })
 
     if (signUpError) {
@@ -54,7 +52,6 @@ export default function RegisterPage() {
       return
     }
 
-    // Seed default categories for the new user
     if (data.user) {
       const categories = DEFAULT_CATEGORIES.map((cat) => ({
         user_id: data.user!.id,
@@ -64,7 +61,8 @@ export default function RegisterPage() {
       await supabase.from("categories").insert(categories)
     }
 
-    router.push("/dashboard")
+    // Go to onboarding instead of dashboard
+    router.push("/onboarding")
     router.refresh()
   }
 
@@ -110,11 +108,11 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Contrasena</Label>
+              <Label htmlFor="password">Contraseña</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Minimo 6 caracteres"
+                placeholder="Mínimo 6 caracteres"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={6}
@@ -127,9 +125,9 @@ export default function RegisterPage() {
               {loading ? "Creando cuenta..." : "Crear Cuenta"}
             </Button>
             <p className="text-sm text-muted-foreground">
-              Ya tenes cuenta?{" "}
+              Ya tenés cuenta?{" "}
               <Link href="/login" className="text-primary underline">
-                Inicia sesion
+                Iniciá sesión
               </Link>
             </p>
           </CardFooter>

@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 
@@ -14,7 +14,24 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Finanzas Familia",
-  description: "Gestion de finanzas familiares - Ingresos, gastos y ahorros",
+  description: "Gestioná los ingresos, gastos y ahorros de tu familia",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Finanzas",
+  },
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: "#1e3a5f",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 }
 
 export default function RootLayout({
