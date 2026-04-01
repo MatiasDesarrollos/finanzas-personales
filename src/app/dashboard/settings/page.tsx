@@ -79,7 +79,7 @@ export default function SettingsPage() {
               onValueChange={(v) => v && setNewCatType(v as "income" | "expense")}
             >
               <SelectTrigger className="w-[130px]">
-                <SelectValue />
+                <SelectValue>{newCatType === "income" ? "Ingreso" : "Gasto"}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="income">Ingreso</SelectItem>

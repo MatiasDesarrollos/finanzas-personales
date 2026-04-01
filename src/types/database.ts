@@ -64,6 +64,7 @@ export type Database = {
           currency: "ARS" | "USD"
           description: string | null
           date: string
+          is_recurring: boolean
           created_at: string
         }
         Insert: {
@@ -75,6 +76,7 @@ export type Database = {
           currency?: "ARS" | "USD"
           description?: string | null
           date: string
+          is_recurring?: boolean
           created_at?: string
         }
         Update: {
@@ -86,6 +88,7 @@ export type Database = {
           currency?: "ARS" | "USD"
           description?: string | null
           date?: string
+          is_recurring?: boolean
           created_at?: string
         }
         Relationships: [
@@ -150,6 +153,7 @@ export type Database = {
           goal_id: string
           amount: number
           currency: "ARS" | "USD"
+          concept: string | null
           date: string
           created_at: string
         }
@@ -159,6 +163,7 @@ export type Database = {
           goal_id: string
           amount: number
           currency?: "ARS" | "USD"
+          concept?: string | null
           date: string
           created_at?: string
         }
@@ -168,6 +173,7 @@ export type Database = {
           goal_id?: string
           amount?: number
           currency?: "ARS" | "USD"
+          concept?: string | null
           date?: string
           created_at?: string
         }

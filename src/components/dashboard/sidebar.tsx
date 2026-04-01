@@ -12,6 +12,7 @@ import {
   Settings,
   LogOut,
   Menu,
+  Wallet,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -34,8 +35,8 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
               pathname === item.href
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             )}
           >
             <item.icon className="h-4 w-4" />
@@ -58,12 +59,15 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="hidden md:flex w-64 border-r flex-col justify-between p-4">
+    <aside className="hidden md:flex w-64 flex-col justify-between p-4 bg-sidebar text-sidebar-foreground">
       <div>
-        <h2 className="text-lg font-bold mb-6 px-3">Finanzas Familia</h2>
+        <div className="flex items-center gap-2 mb-8 px-3">
+          <PiggyBank className="h-6 w-6 text-sidebar-primary" />
+          <h2 className="text-lg font-bold">Finanzas Familia</h2>
+        </div>
         <NavLinks />
       </div>
-      <Button variant="ghost" className="justify-start gap-2" onClick={handleLogout}>
+      <Button variant="ghost" className="justify-start gap-2 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent" onClick={handleLogout}>
         <LogOut className="h-4 w-4" />
         Cerrar sesion
       </Button>

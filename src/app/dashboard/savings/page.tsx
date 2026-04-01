@@ -34,7 +34,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, PiggyBank, Trash2, Target } from "lucide-react"
+import { Plus, PiggyBank, Trash2, Target, X, ChevronDown, ChevronRight, Pencil } from "lucide-react"
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts"
+import { format as fmtDate } from "date-fns"
 
 const supabase = createClient()
 
@@ -44,37 +54,60 @@ export default function SavingsPage() {
   const rate = useExchangeRate()
   const [displayCurrency, setDisplayCurrency] = useState<"ARS" | "USD">("ARS")
 
-  // New Goal form
+  // Goal form (create or edit)
   const [goalDialogOpen, setGoalDialogOpen] = useState(false)
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
   const [goalName, setGoalName] = useState("")
   const [goalTarget, setGoalTarget] = useState("")
   const [goalCurrency, setGoalCurrency] = useState<"ARS" | "USD">("ARS")
   const [goalDeadline, setGoalDeadline] = useState("")
   const [savingGoal, setSavingGoal] = useState(false)
 
-  // Contribution form
+  // Contribution form — keyed by goalId
   const [contribGoalId, setContribGoalId] = useState<string | null>(null)
   const [contribAmount, setContribAmount] = useState("")
   const [contribCurrency, setContribCurrency] = useState<"ARS" | "USD">("ARS")
+  const [contribConcept, setContribConcept] = useState("")
   const [contribDate, setContribDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [savingContrib, setSavingContrib] = useState(false)
 
-  async function handleCreateGoal() {
-    if (!userId || !goalName || !goalTarget) return
-    setSavingGoal(true)
-    await supabase.from("savings_goals").insert({
-      user_id: userId,
-      name: goalName,
-      target_amount: parseFloat(goalTarget),
-      currency: goalCurrency,
-      deadline: goalDeadline || null,
-    })
-    setSavingGoal(false)
-    setGoalDialogOpen(false)
+  // Collapsed concepts per goal: { [goalId]: Set<concept> }
+  const [collapsedConcepts, setCollapsedConcepts] = useState<Record<string, Set<string>>>({})
+
+  function openNewGoal() {
+    setEditingGoalId(null)
     setGoalName("")
     setGoalTarget("")
     setGoalCurrency("ARS")
     setGoalDeadline("")
+    setGoalDialogOpen(true)
+  }
+
+  function openEditGoal(goal: (typeof goals)[0]) {
+    setEditingGoalId(goal.id)
+    setGoalName(goal.name)
+    setGoalTarget(String(goal.target_amount))
+    setGoalCurrency(goal.currency)
+    setGoalDeadline(goal.deadline ?? "")
+    setGoalDialogOpen(true)
+  }
+
+  async function handleSaveGoal() {
+    if (!userId || !goalName || !goalTarget) return
+    setSavingGoal(true)
+    const payload = {
+      name: goalName,
+      target_amount: parseFloat(goalTarget),
+      currency: goalCurrency,
+      deadline: goalDeadline || null,
+    }
+    if (editingGoalId) {
+      await supabase.from("savings_goals").update(payload).eq("id", editingGoalId)
+    } else {
+      await supabase.from("savings_goals").insert({ user_id: userId, ...payload })
+    }
+    setSavingGoal(false)
+    setGoalDialogOpen(false)
     refresh()
   }
 
@@ -86,11 +119,13 @@ export default function SavingsPage() {
       goal_id: contribGoalId,
       amount: parseFloat(contribAmount),
       currency: contribCurrency,
+      concept: contribConcept.trim() || null,
       date: contribDate,
     })
     setSavingContrib(false)
     setContribGoalId(null)
     setContribAmount("")
+    setContribConcept("")
     setContribDate(format(new Date(), "yyyy-MM-dd"))
     refresh()
   }
@@ -98,6 +133,38 @@ export default function SavingsPage() {
   async function handleDeleteGoal(id: string) {
     await supabase.from("savings_goals").delete().eq("id", id)
     refresh()
+  }
+
+  async function handleDeleteContribution(id: string) {
+    await supabase.from("savings_contributions").delete().eq("id", id)
+    refresh()
+  }
+
+  function toggleConcept(goalId: string, concept: string) {
+    setCollapsedConcepts((prev) => {
+      const set = new Set(prev[goalId] ?? [])
+      if (set.has(concept)) set.delete(concept)
+      else set.add(concept)
+      return { ...prev, [goalId]: set }
+    })
+  }
+
+  function getCumulativeData(goal: (typeof goals)[0]) {
+    const sorted = [...goal.savings_contributions].sort((a, b) =>
+      a.date.localeCompare(b.date)
+    )
+    let acc = 0
+    return sorted.map((c) => {
+      const amount =
+        rate && c.currency !== goal.currency
+          ? convertCurrency(c.amount, c.currency, goal.currency, rate)
+          : c.amount
+      acc += amount
+      return {
+        fecha: fmtDate(new Date(c.date), "dd/MM/yy"),
+        acumulado: Math.round(acc),
+      }
+    })
   }
 
   function getGoalProgress(goal: (typeof goals)[0]) {
@@ -113,6 +180,37 @@ export default function SavingsPage() {
       ? Math.min((totalSaved / goal.target_amount) * 100, 100)
       : 0
     return { totalSaved, pct }
+  }
+
+  // Group contributions by concept for a goal
+  function groupByConcept(goal: (typeof goals)[0]) {
+    const groups: Record<string, typeof goal.savings_contributions> = {}
+    for (const c of goal.savings_contributions) {
+      const key = c.concept ?? ""
+      if (!groups[key]) groups[key] = []
+      groups[key].push(c)
+    }
+    // Sort each group by date desc
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => b.date.localeCompare(a.date))
+    }
+    // Sort group keys: named concepts first (alpha), then "" (sin concepto) last
+    return Object.entries(groups).sort(([a], [b]) => {
+      if (a === "" && b !== "") return 1
+      if (a !== "" && b === "") return -1
+      return a.localeCompare(b)
+    })
+  }
+
+  // Get unique concept names for a goal (for datalist suggestions)
+  function getConceptSuggestions(goalId: string) {
+    const goal = goals.find((g) => g.id === goalId)
+    if (!goal) return []
+    const names = new Set<string>()
+    for (const c of goal.savings_contributions) {
+      if (c.concept) names.add(c.concept)
+    }
+    return Array.from(names).sort()
   }
 
   const totalAllSaved = useMemo(() => {
@@ -155,13 +253,16 @@ export default function SavingsPage() {
             </Button>
           </div>
 
+          <Button size="sm" className="gap-1" onClick={openNewGoal}>
+            <Plus className="h-4 w-4" /> Nuevo Objetivo
+          </Button>
+
           <Dialog open={goalDialogOpen} onOpenChange={setGoalDialogOpen}>
-            <DialogTrigger render={<Button size="sm" className="gap-1" />}>
-              <Plus className="h-4 w-4" /> Nuevo Objetivo
-            </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Nuevo Objetivo de Ahorro</DialogTitle>
+                <DialogTitle>
+                  {editingGoalId ? "Editar Objetivo" : "Nuevo Objetivo de Ahorro"}
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -191,7 +292,7 @@ export default function SavingsPage() {
                       onValueChange={(v) => v && setGoalCurrency(v as "ARS" | "USD")}
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>{goalCurrency}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="ARS">ARS</SelectItem>
@@ -209,11 +310,15 @@ export default function SavingsPage() {
                   />
                 </div>
                 <Button
-                  onClick={handleCreateGoal}
+                  onClick={handleSaveGoal}
                   className="w-full"
                   disabled={savingGoal || !goalName || !goalTarget}
                 >
-                  {savingGoal ? "Creando..." : "Crear Objetivo"}
+                  {savingGoal
+                    ? "Guardando..."
+                    : editingGoalId
+                    ? "Guardar cambios"
+                    : "Crear Objetivo"}
                 </Button>
               </div>
             </DialogContent>
@@ -256,6 +361,8 @@ export default function SavingsPage() {
               rate && displayCurrency !== goal.currency
                 ? convertCurrency(goal.target_amount, goal.currency, displayCurrency, rate)
                 : goal.target_amount
+            const conceptGroups = groupByConcept(goal)
+            const suggestions = getConceptSuggestions(goal.id)
 
             return (
               <Card key={goal.id}>
@@ -268,32 +375,189 @@ export default function SavingsPage() {
                           `Fecha limite: ${format(new Date(goal.deadline), "dd/MM/yyyy")}`}
                       </CardDescription>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => handleDeleteGoal(goal.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => openEditGoal(goal)}
+                        title="Editar objetivo"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={() => handleDeleteGoal(goal.id)}
+                        title="Eliminar objetivo"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {/* Progress */}
                   <div>
                     <div className="flex justify-between text-sm mb-1">
-                      <span>{formatCurrency(displaySaved, displayCurrency)}</span>
+                      <span className="font-semibold">{formatCurrency(displaySaved, displayCurrency)}</span>
                       <span className="text-muted-foreground">
-                        de {formatCurrency(displayTarget, displayCurrency)}
+                        meta: {formatCurrency(displayTarget, displayCurrency)}
                       </span>
                     </div>
                     <Progress value={pct} className="h-2" />
                     <p className="text-xs text-muted-foreground mt-1">
                       {Math.round(pct)}% completado
+                      {pct < 100 && ` · faltan ${formatCurrency(displayTarget - displaySaved, displayCurrency)}`}
                     </p>
                   </div>
 
+                  {/* Cumulative chart */}
+                  {(() => {
+                    const chartData = getCumulativeData(goal)
+                    if (chartData.length < 2) return null
+                    const targetVal = Math.round(
+                      rate && displayCurrency !== goal.currency
+                        ? convertCurrency(goal.target_amount, goal.currency, displayCurrency, rate)
+                        : goal.target_amount
+                    )
+                    return (
+                      <div className="pt-1">
+                        <p className="text-xs text-muted-foreground mb-1">Progreso acumulado</p>
+                        <ResponsiveContainer width="100%" height={120}>
+                          <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id={`grad-${goal.id}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <XAxis dataKey="fecha" tick={{ fontSize: 9 }} />
+                            <YAxis hide domain={[0, Math.max(targetVal * 1.05, 1)]} />
+                            <Tooltip
+                              formatter={(v) => [formatCurrency(Number(v), goal.currency), "Ahorrado"]}
+                            />
+                            <ReferenceLine
+                              y={targetVal}
+                              stroke="#16a34a"
+                              strokeDasharray="4 3"
+                              label={{ value: "Meta", fontSize: 9, fill: "#16a34a", position: "right" }}
+                            />
+                            <Area
+                              type="monotone"
+                              dataKey="acumulado"
+                              stroke="#2563eb"
+                              fill={`url(#grad-${goal.id})`}
+                              strokeWidth={2}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Concepts + contributions */}
+                  {conceptGroups.length > 0 && (
+                    <div className="border-t pt-2 space-y-2">
+                      {conceptGroups.map(([concept, contribs]) => {
+                        const conceptLabel = concept || "Sin concepto"
+                        const isCollapsed = collapsedConcepts[goal.id]?.has(concept) ?? false
+                        const conceptTotal = contribs.reduce((sum, c) => {
+                          const amt = rate && c.currency !== goal.currency
+                            ? convertCurrency(c.amount, c.currency, goal.currency, rate)
+                            : c.amount
+                          return sum + amt
+                        }, 0)
+                        const displayConceptTotal = rate && displayCurrency !== goal.currency
+                          ? convertCurrency(conceptTotal, goal.currency, displayCurrency, rate)
+                          : conceptTotal
+
+                        return (
+                          <div key={concept} className="rounded-md border bg-muted/30">
+                            <div className="flex items-center">
+                              <button
+                                className="flex-1 flex items-center justify-between px-3 py-2 text-left"
+                                onClick={() => toggleConcept(goal.id, concept)}
+                              >
+                                <span className="text-xs font-semibold text-foreground flex items-center gap-1">
+                                  {isCollapsed
+                                    ? <ChevronRight className="h-3 w-3" />
+                                    : <ChevronDown className="h-3 w-3" />
+                                  }
+                                  {conceptLabel}
+                                </span>
+                                <span className="text-xs font-medium text-blue-600">
+                                  {formatCurrency(displayConceptTotal, displayCurrency)}
+                                </span>
+                              </button>
+                              {concept !== "" && (
+                                <button
+                                  className="px-2 py-2 text-muted-foreground hover:text-foreground transition-colors"
+                                  title={`Agregar aporte a "${concept}"`}
+                                  onClick={() => {
+                                    setContribGoalId(goal.id)
+                                    setContribCurrency(goal.currency)
+                                    setContribConcept(concept)
+                                    setContribAmount("")
+                                    setContribDate(format(new Date(), "yyyy-MM-dd"))
+                                  }}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                            {!isCollapsed && (
+                              <div className="px-3 pb-2 space-y-0.5">
+                                {contribs.map((c) => (
+                                  <div
+                                    key={c.id}
+                                    className="flex items-center justify-between text-xs py-1 group border-t border-muted first:border-t-0"
+                                  >
+                                    <span className="text-muted-foreground">
+                                      {format(new Date(c.date), "dd/MM/yyyy")}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-medium text-green-600">
+                                        +{formatCurrency(c.amount, c.currency)}
+                                      </span>
+                                      <button
+                                        onClick={() => handleDeleteContribution(c.id)}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive/80 ml-1"
+                                        title="Eliminar aporte"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Add contribution form */}
                   {contribGoalId === goal.id ? (
                     <div className="space-y-3 border-t pt-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Concepto (opcional)</Label>
+                        <Input
+                          list={`concepts-${goal.id}`}
+                          placeholder="Ej: Sueldo, Bono, Extra..."
+                          value={contribConcept}
+                          onChange={(e) => setContribConcept(e.target.value)}
+                        />
+                        {suggestions.length > 0 && (
+                          <datalist id={`concepts-${goal.id}`}>
+                            {suggestions.map((s) => (
+                              <option key={s} value={s} />
+                            ))}
+                          </datalist>
+                        )}
+                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <Label className="text-xs">Monto</Label>
@@ -315,7 +579,7 @@ export default function SavingsPage() {
                             }
                           >
                             <SelectTrigger>
-                              <SelectValue />
+                              <SelectValue>{contribCurrency}</SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="ARS">ARS</SelectItem>
@@ -344,7 +608,12 @@ export default function SavingsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setContribGoalId(null)}
+                          onClick={() => {
+                            setContribGoalId(null)
+                            setContribAmount("")
+                            setContribConcept("")
+                            setContribDate(format(new Date(), "yyyy-MM-dd"))
+                          }}
                         >
                           Cancelar
                         </Button>
@@ -362,28 +631,6 @@ export default function SavingsPage() {
                     >
                       <Plus className="h-3 w-3" /> Agregar Aporte
                     </Button>
-                  )}
-
-                  {goal.savings_contributions.length > 0 && (
-                    <div className="border-t pt-2">
-                      <p className="text-xs text-muted-foreground mb-1">
-                        Ultimos aportes
-                      </p>
-                      {goal.savings_contributions
-                        .sort((a, b) => b.date.localeCompare(a.date))
-                        .slice(0, 3)
-                        .map((c) => (
-                          <div
-                            key={c.id}
-                            className="flex justify-between text-xs py-1"
-                          >
-                            <span>{format(new Date(c.date), "dd/MM/yyyy")}</span>
-                            <span className="font-medium">
-                              +{formatCurrency(c.amount, c.currency)}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
                   )}
                 </CardContent>
               </Card>

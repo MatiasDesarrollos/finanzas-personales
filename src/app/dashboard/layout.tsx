@@ -12,7 +12,7 @@ export default function DashboardLayout({
     <div className="flex h-screen">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-14 border-b flex items-center justify-between px-4">
+        <header className="h-14 border-b bg-card flex items-center justify-between px-4 shadow-sm">
           <MobileSidebar />
           <div className="ml-auto">
             <ExchangeRateBadge />
