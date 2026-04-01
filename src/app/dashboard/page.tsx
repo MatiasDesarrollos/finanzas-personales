@@ -175,8 +175,22 @@ export default function DashboardPage() {
                   const key = e?.activePayload?.[0]?.payload?.monthKey as string | undefined
                   if (key) setSelectedMonthKey((prev) => (prev === key ? null : key))
                 }}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: "pointer", fontFamily: "inherit" }}
               >
+                <defs>
+                  <linearGradient id="grad-ingresos" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#16a34a" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#15803d" stopOpacity={0.8} />
+                  </linearGradient>
+                  <linearGradient id="grad-gastos" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#dc2626" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#b91c1c" stopOpacity={0.8} />
+                  </linearGradient>
+                  <linearGradient id="grad-ahorro" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.8} />
+                  </linearGradient>
+                </defs>
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                 <YAxis
                   tick={{ fontSize: 10 }}
@@ -199,7 +213,14 @@ export default function DashboardPage() {
                       ? "Ahorros"
                       : "Balance",
                   ]}
-                  contentStyle={{ fontSize: 12 }}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: "10px",
+                    border: "1px solid var(--border)",
+                    backgroundColor: "var(--card)",
+                    color: "var(--card-foreground)",
+                    boxShadow: "0 4px 24px -4px rgba(0,0,0,0.12)"
+                  }}
                 />
                 <Legend
                   formatter={(v) =>
@@ -212,33 +233,29 @@ export default function DashboardPage() {
                       : v
                   }
                 />
-                {monthlyData.map((m) => {
-                  const isSelected = selectedMonthKey === m.monthKey
-                  return null // bars handle color via Cell below
-                })}
-                <Bar dataKey="ingresos" radius={[3, 3, 0, 0]}>
+                <Bar dataKey="ingresos" fill="url(#grad-ingresos)" radius={[3, 3, 0, 0]}>
                   {monthlyData.map((m) => (
                     <Cell
                       key={m.monthKey}
-                      fill={selectedMonthKey === m.monthKey ? "#15803d" : "#16a34a"}
+                      fill="url(#grad-ingresos)"
                       opacity={selectedMonthKey && selectedMonthKey !== m.monthKey ? 0.45 : 1}
                     />
                   ))}
                 </Bar>
-                <Bar dataKey="gastos" radius={[3, 3, 0, 0]}>
+                <Bar dataKey="gastos" fill="url(#grad-gastos)" radius={[3, 3, 0, 0]}>
                   {monthlyData.map((m) => (
                     <Cell
                       key={m.monthKey}
-                      fill={selectedMonthKey === m.monthKey ? "#b91c1c" : "#dc2626"}
+                      fill="url(#grad-gastos)"
                       opacity={selectedMonthKey && selectedMonthKey !== m.monthKey ? 0.45 : 1}
                     />
                   ))}
                 </Bar>
-                <Bar dataKey="ahorro" radius={[3, 3, 0, 0]}>
+                <Bar dataKey="ahorro" fill="url(#grad-ahorro)" radius={[3, 3, 0, 0]}>
                   {monthlyData.map((m) => (
                     <Cell
                       key={m.monthKey}
-                      fill={selectedMonthKey === m.monthKey ? "#1d4ed8" : "#2563eb"}
+                      fill="url(#grad-ahorro)"
                       opacity={selectedMonthKey && selectedMonthKey !== m.monthKey ? 0.45 : 1}
                     />
                   ))}
@@ -377,7 +394,15 @@ export default function DashboardPage() {
               </p>
             ) : (
               <ResponsiveContainer width="100%" height={Math.max(200, categoryData.length * 38)}>
-                <BarChart data={categoryData} layout="vertical">
+                <BarChart data={categoryData} layout="vertical" style={{ fontFamily: "inherit" }}>
+                  <defs>
+                    {COLORS.map((color, i) => (
+                      <linearGradient key={`cat-grad-${i}`} id={`cat-grad-${i}`} x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor={color} stopOpacity={0.9} />
+                        <stop offset="100%" stopColor={color} stopOpacity={0.65} />
+                      </linearGradient>
+                    ))}
+                  </defs>
                   <XAxis type="number" hide />
                   <YAxis
                     type="category"
@@ -389,12 +414,20 @@ export default function DashboardPage() {
                     formatter={(value) =>
                       formatCurrency(Number(value), displayCurrency)
                     }
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: "10px",
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--card)",
+                      color: "var(--card-foreground)",
+                      boxShadow: "0 4px 24px -4px rgba(0,0,0,0.12)"
+                    }}
                   />
                   <Bar dataKey="total" radius={[0, 4, 4, 0]}>
                     {categoryData.map((_, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
+                        fill={`url(#cat-grad-${index % COLORS.length})`}
                       />
                     ))}
                   </Bar>
