@@ -12,6 +12,8 @@ import {
   useSavingsGoals,
   useExchangeRate,
   useMonthlyTotals,
+  useCategories,
+  useBudgets,
 } from "@/hooks/use-supabase"
 import { convertCurrency, formatCurrency } from "@/lib/exchange-rate"
 import {
@@ -20,7 +22,10 @@ import {
   Wallet,
   PiggyBank,
   CalendarDays,
+  Target,
+  AlertTriangle,
 } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
 import {
   BarChart,
   Bar,
@@ -42,6 +47,8 @@ export default function DashboardPage() {
   const [displayCurrency, setDisplayCurrency] = useState<"ARS" | "USD">("ARS")
   const { data: monthlyData } = useMonthlyTotals(userId)
   const { goals } = useSavingsGoals(userId)
+  useCategories(userId) // preload categories cache
+  const { budgets } = useBudgets(userId)
 
   // Default: select current month if it has data, otherwise null = Todos
   const nowKey = format(new Date(), "yyyy-MM")
@@ -358,6 +365,164 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      {/* ¿Me alcanza? projection */}
+      {selectedMonthKey && (() => {
+        const now = new Date()
+        const isCurrentMonth = selectedMonthKey === format(now, "yyyy-MM")
+        if (!isCurrentMonth) return null
+        const [y, mo] = selectedMonthKey.split("-").map(Number)
+        const daysInMonth = new Date(y, mo, 0).getDate()
+        const dayOfMonth = now.getDate()
+        const daysLeft = daysInMonth - dayOfMonth
+        const dailySpend = dayOfMonth > 0 ? summary.expense / dayOfMonth : 0
+        const projectedExpense = Math.round(summary.expense + dailySpend * daysLeft)
+        const projectedBalance = Math.round(summary.income - projectedExpense - summary.ahorro)
+        const pctMonthDone = Math.round((dayOfMonth / daysInMonth) * 100)
+        const isOk = projectedBalance >= 0
+        return (
+          <Card className={isOk ? "border-green-200 dark:border-green-800/40" : "border-red-200 dark:border-red-800/40"}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Target className={`h-4 w-4 ${isOk ? "text-green-600" : "text-red-500"}`} />
+                ¿Te alcanza este mes?
+                <span className="text-xs font-normal text-muted-foreground ml-auto">día {dayOfMonth}/{daysInMonth}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Progress value={pctMonthDone} className="h-1.5" />
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-xs text-muted-foreground">Gastado hoy</p>
+                  <p className="text-sm font-semibold text-red-600">{formatCurrency(summary.expense, displayCurrency)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Proyección fin de mes</p>
+                  <p className="text-sm font-semibold">{formatCurrency(projectedExpense, displayCurrency)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Sobrante estimado</p>
+                  <p className={`text-sm font-bold ${isOk ? "text-green-600" : "text-red-600"}`}>
+                    {isOk ? "+" : ""}{formatCurrency(projectedBalance, displayCurrency)}
+                  </p>
+                </div>
+              </div>
+              <p className={`text-xs text-center ${isOk ? "text-green-600" : "text-red-500"}`}>
+                {isOk
+                  ? `✓ A este ritmo de gasto te sobran ${formatCurrency(projectedBalance, displayCurrency)}`
+                  : `⚠ A este ritmo te faltarían ${formatCurrency(Math.abs(projectedBalance), displayCurrency)}`}
+              </p>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
+      {/* Regla 50/30/20 */}
+      {selectedMonthKey && summary.income > 0 && (() => {
+        const needsKeywords = ["alquiler", "servicios", "supermercado", "salud", "transporte", "educacion", "otros gastos"]
+        const wantsKeywords = ["entretenimiento", "restaurantes", "ropa", "delivery"]
+        let needs = 0, wants = 0
+        for (const t of transactions) {
+          if (t.type !== "expense" || (t.description ?? "").startsWith("[Ahorro]")) continue
+          const catName = (t.categories?.name ?? "").toLowerCase()
+          const amt = rate && displayCurrency !== t.currency
+            ? convertCurrency(t.amount, t.currency, displayCurrency, rate) : t.amount
+          if (needsKeywords.some(k => catName.includes(k))) needs += amt
+          else if (wantsKeywords.some(k => catName.includes(k))) wants += amt
+          else needs += amt // default to needs
+        }
+        const savings = summary.ahorro
+        const income = summary.income
+        const needsPct = Math.round((needs / income) * 100)
+        const wantsPct = Math.round((wants / income) * 100)
+        const savingsPct = Math.round((savings / income) * 100)
+        const bars = [
+          { label: "Necesidades", ideal: 50, actual: needsPct, color: "bg-blue-500", amount: needs },
+          { label: "Deseos", ideal: 30, actual: wantsPct, color: "bg-purple-500", amount: wants },
+          { label: "Ahorros", ideal: 20, actual: savingsPct, color: "bg-green-500", amount: savings },
+        ]
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Target className="h-4 w-4 text-purple-600" />
+                Regla 50/30/20
+                <span className="text-xs font-normal text-muted-foreground">salud financiera</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {bars.map(({ label, ideal, actual, color, amount }) => {
+                const isGood = label === "Ahorros" ? actual >= ideal : actual <= ideal
+                return (
+                  <div key={label}>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-medium">{label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">{formatCurrency(amount, displayCurrency)}</span>
+                        <span className={`font-semibold ${isGood ? "text-green-600" : "text-amber-600"}`}>
+                          {actual}% <span className="font-normal text-muted-foreground">(ideal {ideal}%)</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="relative h-2 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.min(actual, 100)}%` }} />
+                      <div className="absolute top-0 h-full border-r-2 border-foreground/30" style={{ left: `${ideal}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+              <p className="text-xs text-muted-foreground text-center pt-1">
+                La línea vertical marca el ideal. Verde = dentro del objetivo.
+              </p>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
+      {/* Budget alerts */}
+      {selectedMonthKey && budgets.length > 0 && (() => {
+        const alerts = budgets
+          .map(budget => {
+            const spent = transactions
+              .filter(t => t.type === "expense" && t.category_id === budget.category_id && !(t.description ?? "").startsWith("[Ahorro]"))
+              .reduce((s, t) => {
+                const amt = rate && displayCurrency !== t.currency
+                  ? convertCurrency(t.amount, t.currency, displayCurrency, rate) : t.amount
+                return s + amt
+              }, 0)
+            const budgetAmt = rate && displayCurrency !== budget.currency
+              ? convertCurrency(budget.amount, budget.currency, displayCurrency, rate) : budget.amount
+            const pct = Math.round((spent / budgetAmt) * 100)
+            return { budget, spent, budgetAmt, pct, catName: budget.categories?.name ?? "?" }
+          })
+          .filter(a => a.pct >= 70)
+          .sort((a, b) => b.pct - a.pct)
+
+        if (alerts.length === 0) return null
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Alertas de presupuesto
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {alerts.map(({ budget, spent, budgetAmt, pct, catName }) => (
+                <div key={budget.id}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-medium">{catName}</span>
+                    <span className={`font-semibold ${pct >= 100 ? "text-red-600" : "text-amber-600"}`}>
+                      {formatCurrency(spent, displayCurrency)} / {formatCurrency(budgetAmt, displayCurrency)} ({pct}%)
+                    </span>
+                  </div>
+                  <Progress value={Math.min(pct, 100)} className={`h-1.5 ${pct >= 100 ? "[&>div]:bg-red-500" : "[&>div]:bg-amber-500"}`} />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Total saved (all goals, all time) */}
       <Card>

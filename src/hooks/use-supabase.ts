@@ -13,6 +13,8 @@ import type {
   BudgetWithCategory,
   Group,
   GroupMember,
+  Installment,
+  InstallmentWithCategory,
 } from "@/types/database"
 
 export type MonthlyTotal = {
@@ -378,6 +380,27 @@ export function useGroupTransactions(groupId: string | null, month: string) {
   useEffect(() => { refresh() }, [refresh])
 
   return { transactions, loading, refresh }
+}
+
+export function useInstallments(userId: string | null) {
+  const [installments, setInstallments] = useState<InstallmentWithCategory[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    if (!userId) return
+    setLoading(true)
+    const { data } = await supabase
+      .from("installments")
+      .select("*, categories(*)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+    setInstallments((data as unknown as InstallmentWithCategory[]) ?? [])
+    setLoading(false)
+  }, [userId])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  return { installments, loading, refresh }
 }
 
 export function useExchangeRate() {

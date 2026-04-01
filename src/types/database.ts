@@ -238,6 +238,48 @@ export type Database = {
         }
         Relationships: []
       }
+      installments: {
+        Row: {
+          id: string
+          user_id: string
+          description: string
+          total_amount: number
+          installment_amount: number
+          currency: "ARS" | "USD"
+          total_installments: number
+          paid_installments: number
+          start_date: string
+          category_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          description: string
+          total_amount: number
+          installment_amount: number
+          currency?: "ARS" | "USD"
+          total_installments: number
+          paid_installments?: number
+          start_date: string
+          category_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          description?: string
+          total_amount?: number
+          installment_amount?: number
+          currency?: "ARS" | "USD"
+          total_installments?: number
+          paid_installments?: number
+          start_date?: string
+          category_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }
@@ -271,4 +313,9 @@ export type ExchangeRate = {
   compra: number
   venta: number
   fecha: string
+}
+
+export type Installment = Database["public"]["Tables"]["installments"]["Row"]
+export type InstallmentWithCategory = Installment & {
+  categories: Category | null
 }
