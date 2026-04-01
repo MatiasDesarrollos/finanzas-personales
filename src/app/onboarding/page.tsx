@@ -51,9 +51,10 @@ export default function OnboardingPage() {
     if (mode === "group") {
       const dn = displayName.trim() || user.email?.split("@")[0] || "Usuario"
       if (groupAction === "create" && groupName.trim()) {
+        const invite_code = Math.random().toString(36).substring(2, 8).toUpperCase()
         const { data: group } = await supabase
           .from("groups")
-          .insert({ name: groupName.trim(), created_by: user.id })
+          .insert({ name: groupName.trim(), created_by: user.id, invite_code })
           .select()
           .single()
         if (group) {

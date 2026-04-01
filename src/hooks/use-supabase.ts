@@ -257,9 +257,10 @@ export function useGroups(userId: string | null) {
 
   async function createGroup(name: string, displayName: string): Promise<Group | null> {
     if (!userId) return null
+    const invite_code = Math.random().toString(36).substring(2, 8).toUpperCase()
     const { data: group } = await supabase
       .from("groups")
-      .insert({ name, created_by: userId })
+      .insert({ name, created_by: userId, invite_code })
       .select()
       .single()
     if (group) {
