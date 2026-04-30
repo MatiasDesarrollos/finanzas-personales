@@ -404,6 +404,29 @@ function SavingRow({ row, idx, matchingTxs, ROW, cellBorder, fmt, onEdit, onDele
   )
 }
 
+// ─── Tiny delta indicator (used in AnualView cells) ──────────────────────────
+function DeltaMini({ curr, prev, type, dark = false }: {
+  curr: number; prev: number; type: "income" | "expense"; dark?: boolean
+}) {
+  if (prev <= 0 || curr <= 0) return null
+  const delta = Math.round(((curr - prev) / prev) * 100)
+  if (delta === 0) return (
+    <div className={cn("text-[10px] leading-tight", dark ? "text-white/40" : "text-slate-400")}>= 0%</div>
+  )
+  const isPositive = delta > 0
+  const isGood = type === "income" ? isPositive : !isPositive
+  return (
+    <div className={cn(
+      "text-[10px] font-bold leading-tight flex items-center justify-end gap-0.5 mt-0.5",
+      dark
+        ? isGood ? "text-emerald-300" : "text-red-300"
+        : isGood ? "text-green-600" : "text-red-500"
+    )}>
+      {isPositive ? "↑" : "↓"}{Math.abs(delta)}%
+    </div>
+  )
+}
+
 // ─── Annual / histórico view — all months as columns ─────────────────────────
 function AnualView({
   userId, displayCurrency, rate,
@@ -507,32 +530,32 @@ function AnualView({
           </tr>
           {incomeKeys.map((key, idx) => (
             <tr key={key} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-              <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap")}>
+              <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap text-xs font-medium")}>
                 {key}
               </td>
-              {monthData.map(({ mk, income }) => (
-                <td key={mk} className={cn(
-                  "px-3 py-2 text-right font-mono border-r border-slate-100 last:border-r-0 tabular-nums text-xs",
-                  income[key] ? "text-green-700 font-semibold" : "text-slate-300",
-                  mk === currentMk && "bg-green-50"
-                )}>
-                  {fmt(income[key] ?? 0)}
-                </td>
-              ))}
+              {monthData.map(({ mk, income }, i) => {
+                const curr = income[key] ?? 0
+                const prev = monthData[i - 1]?.income[key] ?? 0
+                return (
+                  <td key={mk} className={cn("px-3 py-2 text-right border-r border-slate-100 last:border-r-0", mk === currentMk && "bg-green-50")}>
+                    <div className={cn("font-mono tabular-nums text-xs", curr ? "text-green-700 font-semibold" : "text-slate-300")}>{fmt(curr)}</div>
+                    {i > 0 && <DeltaMini curr={curr} prev={prev} type="income" />}
+                  </td>
+                )
+              })}
             </tr>
           ))}
           <tr className="bg-green-100 border-t-2 border-green-300">
             <td className={cn(FC, "bg-green-100 px-4 py-2 text-xs font-bold uppercase text-green-900 border-green-200 whitespace-nowrap")}>
               Total ingresos
             </td>
-            {monthData.map(({ mk, income }) => {
+            {monthData.map(({ mk, income }, i) => {
               const tot = Object.values(income).reduce((s, v) => s + v, 0)
+              const prevTot = i > 0 ? Object.values(monthData[i - 1].income).reduce((s, v) => s + v, 0) : 0
               return (
-                <td key={mk} className={cn(
-                  "px-3 py-2 text-right font-mono font-bold text-green-800 border-r border-green-200 last:border-r-0 tabular-nums text-xs",
-                  mk === currentMk && "bg-green-200/60"
-                )}>
-                  {fmt(tot)}
+                <td key={mk} className={cn("px-3 py-2 text-right border-r border-green-200 last:border-r-0", mk === currentMk && "bg-green-200/60")}>
+                  <div className="font-mono font-bold text-green-800 tabular-nums text-xs">{fmt(tot)}</div>
+                  {i > 0 && <DeltaMini curr={tot} prev={prevTot} type="income" />}
                 </td>
               )
             })}
@@ -547,32 +570,32 @@ function AnualView({
             </tr>
             {expenseKeys.map((key, idx) => (
               <tr key={key} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap")}>
+                <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap text-xs font-medium")}>
                   {key}
                 </td>
-                {monthData.map(({ mk, expense }) => (
-                  <td key={mk} className={cn(
-                    "px-3 py-2 text-right font-mono border-r border-slate-100 last:border-r-0 tabular-nums text-xs",
-                    expense[key] ? "text-red-600 font-semibold" : "text-slate-300",
-                    mk === currentMk && "bg-red-50"
-                  )}>
-                    {fmt(expense[key] ?? 0)}
-                  </td>
-                ))}
+                {monthData.map(({ mk, expense }, i) => {
+                  const curr = expense[key] ?? 0
+                  const prev = monthData[i - 1]?.expense[key] ?? 0
+                  return (
+                    <td key={mk} className={cn("px-3 py-2 text-right border-r border-slate-100 last:border-r-0", mk === currentMk && "bg-red-50")}>
+                      <div className={cn("font-mono tabular-nums text-xs", curr ? "text-red-600 font-semibold" : "text-slate-300")}>{fmt(curr)}</div>
+                      {i > 0 && <DeltaMini curr={curr} prev={prev} type="expense" />}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
             <tr className="bg-red-100 border-t-2 border-red-300">
               <td className={cn(FC, "bg-red-100 px-4 py-2 text-xs font-bold uppercase text-red-900 border-red-200 whitespace-nowrap")}>
                 Total egresos
               </td>
-              {monthData.map(({ mk, expense }) => {
+              {monthData.map(({ mk, expense }, i) => {
                 const tot = Object.values(expense).reduce((s, v) => s + v, 0)
+                const prevTot = i > 0 ? Object.values(monthData[i - 1].expense).reduce((s, v) => s + v, 0) : 0
                 return (
-                  <td key={mk} className={cn(
-                    "px-3 py-2 text-right font-mono font-bold text-red-800 border-r border-red-200 last:border-r-0 tabular-nums text-xs",
-                    mk === currentMk && "bg-red-200/60"
-                  )}>
-                    {fmt(tot)}
+                  <td key={mk} className={cn("px-3 py-2 text-right border-r border-red-200 last:border-r-0", mk === currentMk && "bg-red-200/60")}>
+                    <div className="font-mono font-bold text-red-800 tabular-nums text-xs">{fmt(tot)}</div>
+                    {i > 0 && <DeltaMini curr={tot} prev={prevTot} type="expense" />}
                   </td>
                 )
               })}
@@ -588,18 +611,19 @@ function AnualView({
             </tr>
             {savingKeys.map((key, idx) => (
               <tr key={key} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap")}>
+                <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap text-xs font-medium")}>
                   {key}
                 </td>
-                {monthData.map(({ mk, saving }) => (
-                  <td key={mk} className={cn(
-                    "px-3 py-2 text-right font-mono border-r border-slate-100 last:border-r-0 tabular-nums text-xs",
-                    saving[key] ? "text-blue-700 font-semibold" : "text-slate-300",
-                    mk === currentMk && "bg-blue-50"
-                  )}>
-                    {fmt(saving[key] ?? 0)}
-                  </td>
-                ))}
+                {monthData.map(({ mk, saving }, i) => {
+                  const curr = saving[key] ?? 0
+                  const prev = monthData[i - 1]?.saving[key] ?? 0
+                  return (
+                    <td key={mk} className={cn("px-3 py-2 text-right border-r border-slate-100 last:border-r-0", mk === currentMk && "bg-blue-50")}>
+                      <div className={cn("font-mono tabular-nums text-xs", curr ? "text-blue-700 font-semibold" : "text-slate-300")}>{fmt(curr)}</div>
+                      {i > 0 && <DeltaMini curr={curr} prev={prev} type="income" />}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
           </>}
@@ -609,18 +633,25 @@ function AnualView({
             <td className={cn(FC, "bg-emerald-600 px-4 py-3 font-bold text-sm border-emerald-500 whitespace-nowrap")}>
               💰 Sobrante
             </td>
-            {monthData.map(({ mk, income, expense, saving }) => {
+            {monthData.map(({ mk, income, expense, saving }, i) => {
               const tI = Object.values(income).reduce((s, v) => s + v, 0)
               const tE = Object.values(expense).reduce((s, v) => s + v, 0)
               const tS = Object.values(saving).reduce((s, v) => s + v, 0)
               const sob = tI - tE - tS
+              const prevSob = i > 0
+                ? Object.values(monthData[i - 1].income).reduce((s, v) => s + v, 0)
+                  - Object.values(monthData[i - 1].expense).reduce((s, v) => s + v, 0)
+                  - Object.values(monthData[i - 1].saving).reduce((s, v) => s + v, 0)
+                : 0
               return (
                 <td key={mk} className={cn(
-                  "px-3 py-3 text-right font-mono font-bold tabular-nums text-xs border-r border-emerald-500 last:border-r-0",
-                  sob < 0 ? "text-red-200" : "text-white",
+                  "px-3 py-3 text-right border-r border-emerald-500 last:border-r-0",
                   mk === currentMk && "bg-emerald-500"
                 )}>
-                  {sob < 0 ? "−" : ""}{fmt(Math.abs(sob))}
+                  <div className={cn("font-mono font-bold tabular-nums text-xs", sob < 0 ? "text-red-200" : "text-white")}>
+                    {sob < 0 ? "−" : ""}{fmt(Math.abs(sob))}
+                  </div>
+                  {i > 0 && <DeltaMini curr={sob} prev={prevSob} type="income" dark />}
                 </td>
               )
             })}
