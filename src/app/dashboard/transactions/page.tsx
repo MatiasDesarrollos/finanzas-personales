@@ -22,7 +22,7 @@ import {
 import {
   Plus, ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, PiggyBank, Wallet,
-  RefreshCw, Repeat2, ArrowUp, ArrowDown, Minus,
+  Repeat2, ArrowUp, ArrowDown, Minus, Copy, Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -301,6 +301,59 @@ function ReciboDeSueldo({
   )
 }
 
+// ─── CopyRow — single transaction row inside the copy dialog ─────────────────
+function CopyRow({
+  t, selected, onToggle,
+}: { t: Tx; selected: boolean; onToggle: () => void }) {
+  const isAhorro = isSavingTransaction(t.description)
+  const label =
+    (t.description ?? "").replace(/^\[Ahorro\]\s*/, "") ||
+    t.categories?.name || "Sin descripción"
+
+  return (
+    <button
+      onClick={onToggle}
+      className={cn(
+        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all",
+        selected
+          ? "bg-primary/5 border-primary/30"
+          : "bg-white border-slate-100 hover:border-slate-200"
+      )}
+    >
+      {/* Checkbox */}
+      <div className={cn(
+        "h-5 w-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors",
+        selected ? "bg-primary border-primary" : "border-slate-300"
+      )}>
+        {selected && <Check className="h-3.5 w-3.5 text-white" />}
+      </div>
+
+      {/* Label */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{label}</p>
+        {t.categories?.name && !isAhorro && (
+          <p className="text-xs text-muted-foreground">{t.categories.name}</p>
+        )}
+      </div>
+
+      {/* Amount + recurring badge */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {t.is_recurring && (
+          <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+            <Repeat2 className="h-3 w-3" /> fijo
+          </span>
+        )}
+        <span className={cn(
+          "text-sm font-bold tabular-nums",
+          t.type === "income" ? "text-green-600" : isAhorro ? "text-blue-600" : "text-red-500"
+        )}>
+          {formatCurrency(t.amount, t.currency)}
+        </span>
+      </div>
+    </button>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function TransactionsPage() {
   const userId = useUser()
@@ -357,6 +410,62 @@ export default function TransactionsPage() {
   const [displayCurrency, setDisplayCurrency] = useState<"ARS" | "USD">("ARS")
   const [copying, setCopying] = useState(false)
 
+  // ── Copy-from-prev-month dialog ─────────────────────────────────────────────
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  function openCopyDialog() {
+    // Pre-select recurring transactions
+    const preSelected = new Set(
+      prevTransactions.filter(t => t.is_recurring).map(t => t.id)
+    )
+    setSelectedIds(preSelected)
+    setCopyDialogOpen(true)
+  }
+
+  function toggleId(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll(ids: string[]) {
+    const allSelected = ids.every(id => selectedIds.has(id))
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      ids.forEach(id => allSelected ? next.delete(id) : next.add(id))
+      return next
+    })
+  }
+
+  async function handleCopySelected() {
+    if (!userId || selectedIds.size === 0) return
+    setCopying(true)
+    const targetDate = format(
+      new Date(now.getFullYear(), now.getMonth() + monthOffset, 1),
+      "yyyy-MM-dd"
+    )
+    const toCopy = prevTransactions.filter(t => selectedIds.has(t.id))
+    await supabase.from("transactions").insert(
+      toCopy.map(t => ({
+        user_id: userId,
+        type: t.type,
+        amount: t.amount,
+        currency: t.currency,
+        category_id: t.category_id,
+        description: t.description,
+        date: targetDate,
+        is_recurring: t.is_recurring,
+      }))
+    )
+    setCopying(false)
+    setCopyDialogOpen(false)
+    setSelectedIds(new Set())
+    refresh()
+  }
+
   function resetForm() {
     setEditingId(null)
     setType("expense")
@@ -389,41 +498,6 @@ export default function TransactionsPage() {
     setDialogOpen(true)
   }
 
-  async function handleCopyRecurring() {
-    if (!userId) return
-    setCopying(true)
-    const prevMonth = format(
-      new Date(now.getFullYear(), now.getMonth() + monthOffset - 1, 1),
-      "yyyy-MM"
-    )
-    const { data: recurringTxs } = await supabase
-      .from("transactions")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("is_recurring", true)
-      .gte("date", `${prevMonth}-01`)
-      .lt("date", (() => {
-        const [y, m] = prevMonth.split("-").map(Number)
-        return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`
-      })())
-
-    if (recurringTxs && recurringTxs.length > 0) {
-      const targetMonthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
-      const newTxs = recurringTxs.map((t) => ({
-        user_id: userId,
-        type: t.type,
-        amount: t.amount,
-        currency: t.currency,
-        category_id: t.category_id,
-        description: t.description,
-        date: format(targetMonthDate, "yyyy-MM-dd"),
-        is_recurring: true,
-      }))
-      await supabase.from("transactions").insert(newTxs)
-      refresh()
-    }
-    setCopying(false)
-  }
 
   async function handleSave() {
     if (!userId || !amount || !date) return
@@ -524,11 +598,126 @@ export default function TransactionsPage() {
             </Button>
           </div>
 
-          {/* Copy recurring */}
-          <Button size="sm" variant="outline" className="gap-1 h-8 text-xs" onClick={handleCopyRecurring} disabled={copying} title="Copia gastos/ingresos fijos del mes anterior">
-            <RefreshCw className={cn("h-3.5 w-3.5", copying && "animate-spin")} />
-            Copiar fijos
+          {/* Copy from previous month */}
+          <Button
+            size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
+            onClick={openCopyDialog}
+            disabled={prevTransactions.length === 0}
+            title="Elegí qué movimientos traer del mes anterior"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copiar del mes anterior
           </Button>
+
+          {/* Copy dialog */}
+          <Dialog open={copyDialogOpen} onOpenChange={o => { setCopyDialogOpen(o); if (!o) setSelectedIds(new Set()) }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Copy className="h-4 w-4" />
+                  Copiar desde {shortPrevMonthLabel} → {shortMonthLabel}
+                </DialogTitle>
+              </DialogHeader>
+
+              {prevTransactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No hay movimientos en el mes anterior</p>
+              ) : (
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                  {/* INGRESOS group */}
+                  {(() => {
+                    const group = prevTransactions.filter(t => t.type === "income")
+                    if (!group.length) return null
+                    const ids = group.map(t => t.id)
+                    const allSel = ids.every(id => selectedIds.has(id))
+                    return (
+                      <div>
+                        <button
+                          onClick={() => toggleAll(ids)}
+                          className="flex items-center gap-2 w-full px-1 py-1.5 text-xs font-bold uppercase tracking-widest text-green-700 hover:text-green-800 transition-colors"
+                        >
+                          <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors", allSel ? "bg-green-500 border-green-500" : "border-slate-300")}>
+                            {allSel && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <TrendingUp className="h-3.5 w-3.5" /> Ingresos ({group.length})
+                        </button>
+                        <div className="space-y-1 mt-1">
+                          {group.map(t => (
+                            <CopyRow key={t.id} t={t} selected={selectedIds.has(t.id)} onToggle={() => toggleId(t.id)} />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* EGRESOS group */}
+                  {(() => {
+                    const group = prevTransactions.filter(t => t.type === "expense" && !isSavingTransaction(t.description))
+                    if (!group.length) return null
+                    const ids = group.map(t => t.id)
+                    const allSel = ids.every(id => selectedIds.has(id))
+                    return (
+                      <div>
+                        <button
+                          onClick={() => toggleAll(ids)}
+                          className="flex items-center gap-2 w-full px-1 py-1.5 text-xs font-bold uppercase tracking-widest text-red-600 hover:text-red-700 transition-colors"
+                        >
+                          <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors", allSel ? "bg-red-500 border-red-500" : "border-slate-300")}>
+                            {allSel && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <TrendingDown className="h-3.5 w-3.5" /> Egresos ({group.length})
+                        </button>
+                        <div className="space-y-1 mt-1">
+                          {group.map(t => (
+                            <CopyRow key={t.id} t={t} selected={selectedIds.has(t.id)} onToggle={() => toggleId(t.id)} />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* AHORROS group */}
+                  {(() => {
+                    const group = prevTransactions.filter(t => isSavingTransaction(t.description))
+                    if (!group.length) return null
+                    const ids = group.map(t => t.id)
+                    const allSel = ids.every(id => selectedIds.has(id))
+                    return (
+                      <div>
+                        <button
+                          onClick={() => toggleAll(ids)}
+                          className="flex items-center gap-2 w-full px-1 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-600 hover:text-blue-700 transition-colors"
+                        >
+                          <div className={cn("h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors", allSel ? "bg-blue-500 border-blue-500" : "border-slate-300")}>
+                            {allSel && <Check className="h-3 w-3 text-white" />}
+                          </div>
+                          <PiggyBank className="h-3.5 w-3.5" /> Ahorros ({group.length})
+                        </button>
+                        <div className="space-y-1 mt-1">
+                          {group.map(t => (
+                            <CopyRow key={t.id} t={t} selected={selectedIds.has(t.id)} onToggle={() => toggleId(t.id)} />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2 border-t">
+                <Button variant="outline" className="flex-1" onClick={() => setCopyDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1 gap-2"
+                  disabled={selectedIds.size === 0 || copying}
+                  onClick={handleCopySelected}
+                >
+                  <Copy className="h-4 w-4" />
+                  {copying ? "Copiando..." : `Copiar ${selectedIds.size} seleccionado${selectedIds.size !== 1 ? "s" : ""}`}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* New transaction */}
           <Dialog open={dialogOpen} onOpenChange={o => { setDialogOpen(o); if (!o) resetForm() }}>
