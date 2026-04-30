@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from "react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
+import * as XLSX from "xlsx"
 import { createClient } from "@/lib/supabase/client"
 import {
   useUser, useCategories, useTransactions, useExchangeRate, useSavingsGoals,
@@ -23,7 +24,7 @@ import {
   Plus, ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, PiggyBank, Wallet,
   Repeat2, ArrowUp, ArrowDown, Minus, Copy, Check,
-  Pencil, Trash2, ChevronDown,
+  Pencil, Trash2, ChevronDown, Download,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -64,6 +65,12 @@ function aggregateTxs(
 }
 
 type AggRow = { key: string; curr: number; prev: number; delta: number | null }
+type MonthData = {
+  mk: string; label: string
+  income: Record<string, number>
+  expense: Record<string, number>
+  saving: Record<string, number>
+}
 
 function buildRows(currMap: Record<string, number>, prevMap: Record<string, number>): AggRow[] {
   const keys = [...new Set([...Object.keys(currMap), ...Object.keys(prevMap)])]
@@ -429,73 +436,13 @@ function DeltaMini({ curr, prev, type, dark = false }: {
 
 // ─── Annual / histórico view — all months as columns ─────────────────────────
 function AnualView({
-  userId, displayCurrency, rate,
-}: { userId: string; displayCurrency: "ARS" | "USD"; rate: Rate }) {
-  const [allTxs, setAllTxs] = useState<Tx[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    setLoading(true)
-    supabase
-      .from("transactions")
-      .select("*, categories(*)")
-      .eq("user_id", userId)
-      .order("date")
-      .then(({ data }) => {
-        setAllTxs((data as unknown as Tx[]) ?? [])
-        setLoading(false)
-      })
-  }, [userId])
-
-  const monthGroups = useMemo(() => {
-    const groups: Record<string, Tx[]> = {}
-    for (const t of allTxs) {
-      const mk = t.date.substring(0, 7)
-      if (!groups[mk]) groups[mk] = []
-      groups[mk].push(t)
-    }
-    return groups
-  }, [allTxs])
-
-  const months = useMemo(() => Object.keys(monthGroups).sort(), [monthGroups])
-
-  const monthData = useMemo(() =>
-    months.map(mk => {
-      const [y, m] = mk.split("-").map(Number)
-      return {
-        mk,
-        label: format(new Date(y, m - 1, 1), "MMM yy", { locale: es }),
-        income:  aggregateTxs(monthGroups[mk] ?? [], "income",  rate, displayCurrency),
-        expense: aggregateTxs(monthGroups[mk] ?? [], "expense", rate, displayCurrency),
-        saving:  aggregateTxs(monthGroups[mk] ?? [], "saving",  rate, displayCurrency),
-      }
-    }), [months, monthGroups, rate, displayCurrency]
-  )
-
-  const incomeKeys = useMemo(() => {
-    const keys = new Set<string>()
-    monthData.forEach(d => Object.keys(d.income).forEach(k => keys.add(k)))
-    return [...keys].sort((a, b) =>
-      monthData.reduce((s, d) => s + (d.income[b] ?? 0), 0) -
-      monthData.reduce((s, d) => s + (d.income[a] ?? 0), 0)
-    )
-  }, [monthData])
-
-  const expenseKeys = useMemo(() => {
-    const keys = new Set<string>()
-    monthData.forEach(d => Object.keys(d.expense).forEach(k => keys.add(k)))
-    return [...keys].sort((a, b) =>
-      monthData.reduce((s, d) => s + (d.expense[b] ?? 0), 0) -
-      monthData.reduce((s, d) => s + (d.expense[a] ?? 0), 0)
-    )
-  }, [monthData])
-
-  const savingKeys = useMemo(() => {
-    const keys = new Set<string>()
-    monthData.forEach(d => Object.keys(d.saving).forEach(k => keys.add(k)))
-    return [...keys]
-  }, [monthData])
-
+  monthData, incomeKeys, expenseKeys, savingKeys, displayCurrency, loading,
+}: {
+  monthData: MonthData[]
+  incomeKeys: string[]; expenseKeys: string[]; savingKeys: string[]
+  displayCurrency: "ARS" | "USD"; loading: boolean
+}) {
+  const months = monthData.map(d => d.mk)
   const currentMk = format(new Date(), "yyyy-MM")
   const fmt = (v: number) => v > 0 ? formatCurrency(v, displayCurrency) : "—"
   const FC = "sticky left-0 z-10 border-r"
@@ -755,6 +702,79 @@ export default function TransactionsPage() {
   const { transactions, loading, refresh } = useTransactions(userId, currentMonth)
   const { transactions: prevTransactions } = useTransactions(userId, prevMonthKey)
 
+  const [displayCurrency, setDisplayCurrency] = useState<"ARS" | "USD">("ARS")
+
+  // ── Annual data (lazy: fetch only when switching to Histórico) ──────────────
+  const [allTxs, setAllTxs] = useState<Tx[]>([])
+  const [loadingAll, setLoadingAll] = useState(false)
+  const [allTxsLoaded, setAllTxsLoaded] = useState(false)
+
+  useEffect(() => {
+    if (viewMode !== "anual" || !userId || allTxsLoaded) return
+    setLoadingAll(true)
+    supabase.from("transactions").select("*, categories(*)").eq("user_id", userId).order("date")
+      .then(({ data }) => {
+        setAllTxs((data as unknown as Tx[]) ?? [])
+        setLoadingAll(false)
+        setAllTxsLoaded(true)
+      })
+  }, [userId, viewMode, allTxsLoaded])
+
+  // Refresh annual data after save/delete when in anual mode
+  useEffect(() => {
+    if (viewMode === "anual") setAllTxsLoaded(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions])
+
+  const anualMonthGroups = useMemo(() => {
+    const groups: Record<string, Tx[]> = {}
+    for (const t of allTxs) {
+      const mk = t.date.substring(0, 7)
+      if (!groups[mk]) groups[mk] = []
+      groups[mk].push(t)
+    }
+    return groups
+  }, [allTxs])
+
+  const anualMonths = useMemo(() => Object.keys(anualMonthGroups).sort(), [anualMonthGroups])
+
+  const anualMonthData = useMemo<MonthData[]>(() =>
+    anualMonths.map(mk => {
+      const [y, m] = mk.split("-").map(Number)
+      return {
+        mk,
+        label: format(new Date(y, m - 1, 1), "MMM yy", { locale: es }),
+        income:  aggregateTxs(anualMonthGroups[mk] ?? [], "income",  rate, displayCurrency),
+        expense: aggregateTxs(anualMonthGroups[mk] ?? [], "expense", rate, displayCurrency),
+        saving:  aggregateTxs(anualMonthGroups[mk] ?? [], "saving",  rate, displayCurrency),
+      }
+    }), [anualMonths, anualMonthGroups, rate, displayCurrency]
+  )
+
+  const anualIncomeKeys = useMemo(() => {
+    const keys = new Set<string>()
+    anualMonthData.forEach(d => Object.keys(d.income).forEach(k => keys.add(k)))
+    return [...keys].sort((a, b) =>
+      anualMonthData.reduce((s, d) => s + (d.income[b] ?? 0), 0) -
+      anualMonthData.reduce((s, d) => s + (d.income[a] ?? 0), 0)
+    )
+  }, [anualMonthData])
+
+  const anualExpenseKeys = useMemo(() => {
+    const keys = new Set<string>()
+    anualMonthData.forEach(d => Object.keys(d.expense).forEach(k => keys.add(k)))
+    return [...keys].sort((a, b) =>
+      anualMonthData.reduce((s, d) => s + (d.expense[b] ?? 0), 0) -
+      anualMonthData.reduce((s, d) => s + (d.expense[a] ?? 0), 0)
+    )
+  }, [anualMonthData])
+
+  const anualSavingKeys = useMemo(() => {
+    const keys = new Set<string>()
+    anualMonthData.forEach(d => Object.keys(d.saving).forEach(k => keys.add(k)))
+    return [...keys]
+  }, [anualMonthData])
+
   // ── Form state ──────────────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -768,7 +788,6 @@ export default function TransactionsPage() {
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [saving, setSaving] = useState(false)
   const [isRecurring, setIsRecurring] = useState(false)
-  const [displayCurrency, setDisplayCurrency] = useState<"ARS" | "USD">("ARS")
   const [copying, setCopying] = useState(false)
 
   // ── Copy-from-prev-month dialog ─────────────────────────────────────────────
@@ -912,6 +931,76 @@ export default function TransactionsPage() {
     refresh()
   }
 
+  // ── Excel export ─────────────────────────────────────────────────────────────
+  function handleExportMensual() {
+    const cI = aggregateTxs(transactions, "income",  rate, displayCurrency)
+    const pI = aggregateTxs(prevTransactions, "income",  rate, displayCurrency)
+    const cE = aggregateTxs(transactions, "expense", rate, displayCurrency)
+    const pE = aggregateTxs(prevTransactions, "expense", rate, displayCurrency)
+    const cS = aggregateTxs(transactions, "saving",  rate, displayCurrency)
+    const pS = aggregateTxs(prevTransactions, "saving",  rate, displayCurrency)
+    const iR = buildRows(cI, pI), eR = buildRows(cE, pE), sR = buildRows(cS, pS)
+    const tCI = iR.reduce((s, r) => s + r.curr, 0), tPI = iR.reduce((s, r) => s + r.prev, 0)
+    const tCE = eR.reduce((s, r) => s + r.curr, 0), tPE = eR.reduce((s, r) => s + r.prev, 0)
+    const tCS = sR.reduce((s, r) => s + r.curr, 0), tPS = sR.reduce((s, r) => s + r.prev, 0)
+    const d = (c: number, p: number) => p > 0 ? `${c >= p ? "+" : ""}${Math.round(((c - p) / p) * 100)}%` : ""
+    const sob = tCI - tCE - tCS, prevSob = tPI - tPE - tPS
+    const rows: (string | number)[][] = [
+      [`Movimientos — ${monthLabel}`, "", "", ""],
+      [],
+      ["Concepto", shortMonthLabel, shortPrevMonthLabel, "Δ%"],
+      [],
+      ["↑ INGRESOS", "", "", ""],
+      ...iR.map(r => [r.key, r.curr, r.prev || "", d(r.curr, r.prev)]),
+      ["TOTAL INGRESOS", tCI, tPI, d(tCI, tPI)],
+      [],
+      ["↓ EGRESOS", "", "", ""],
+      ...eR.map(r => [r.key, r.curr, r.prev || "", d(r.curr, r.prev)]),
+      ["TOTAL EGRESOS", tCE, tPE, d(tCE, tPE)],
+      ...(sR.length > 0 ? [[], ["AHORROS", "", "", ""], ...sR.map(r => [r.key, r.curr, r.prev || "", d(r.curr, r.prev)])] : []),
+      [],
+      ["SOBRANTE", sob, prevSob || "", d(sob, prevSob)],
+    ]
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    ws["!cols"] = [{ wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 8 }]
+    XLSX.utils.book_append_sheet(wb, ws, monthLabel)
+    XLSX.writeFile(wb, `movimientos-${currentMonth}.xlsx`)
+  }
+
+  function handleExportAnual() {
+    if (anualMonthData.length === 0) return
+    const headers = ["Concepto", ...anualMonthData.map(d => d.label)]
+    const rows: (string | number)[][] = [
+      headers,
+      [],
+      ["↑ INGRESOS", ...anualMonthData.map(() => "")],
+      ...anualIncomeKeys.map(k => [k, ...anualMonthData.map(d => d.income[k] ?? 0)]),
+      ["TOTAL INGRESOS", ...anualMonthData.map(d => Object.values(d.income).reduce((s, v) => s + v, 0))],
+      [],
+      ["↓ EGRESOS", ...anualMonthData.map(() => "")],
+      ...anualExpenseKeys.map(k => [k, ...anualMonthData.map(d => d.expense[k] ?? 0)]),
+      ["TOTAL EGRESOS", ...anualMonthData.map(d => Object.values(d.expense).reduce((s, v) => s + v, 0))],
+      ...(anualSavingKeys.length > 0 ? [
+        [],
+        ["AHORROS", ...anualMonthData.map(() => "")],
+        ...anualSavingKeys.map(k => [k, ...anualMonthData.map(d => d.saving[k] ?? 0)]),
+      ] : []),
+      [],
+      ["SOBRANTE", ...anualMonthData.map(d => {
+        const tI = Object.values(d.income).reduce((s, v) => s + v, 0)
+        const tE = Object.values(d.expense).reduce((s, v) => s + v, 0)
+        const tS = Object.values(d.saving).reduce((s, v) => s + v, 0)
+        return tI - tE - tS
+      })],
+    ]
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    ws["!cols"] = [{ wch: 32 }, ...anualMonthData.map(() => ({ wch: 16 }))]
+    XLSX.utils.book_append_sheet(wb, ws, "Histórico")
+    XLSX.writeFile(wb, `historico-finanzas.xlsx`)
+  }
+
   const summary = useMemo(() => {
     let income = 0, expense = 0, savingTotal = 0
     for (const t of transactions) {
@@ -977,7 +1066,19 @@ export default function TransactionsPage() {
             </Button>
           </div>
 
-          {/* Copy from previous month */}
+          {/* Excel export */}
+          <Button
+            size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
+            onClick={viewMode === "mensual" ? handleExportMensual : handleExportAnual}
+            disabled={viewMode === "anual" && anualMonthData.length === 0}
+            title="Descargar como Excel"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Excel
+          </Button>
+
+          {/* Copy from previous month — only in mensual */}
+          {viewMode === "mensual" && (
           <Button
             size="sm" variant="outline" className="gap-1.5 h-8 text-xs"
             onClick={openCopyDialog}
@@ -987,6 +1088,7 @@ export default function TransactionsPage() {
             <Copy className="h-3.5 w-3.5" />
             Copiar del mes anterior
           </Button>
+          )}
 
           {/* Copy dialog */}
           <Dialog open={copyDialogOpen} onOpenChange={o => { setCopyDialogOpen(o); if (!o) setSelectedIds(new Set()) }}>
@@ -1217,7 +1319,14 @@ export default function TransactionsPage() {
 
       {/* ── Content ────────────────────────────────────────────────────────── */}
       {viewMode === "anual" ? (
-        <AnualView userId={userId} displayCurrency={displayCurrency} rate={rate} />
+        <AnualView
+          monthData={anualMonthData}
+          incomeKeys={anualIncomeKeys}
+          expenseKeys={anualExpenseKeys}
+          savingKeys={anualSavingKeys}
+          displayCurrency={displayCurrency}
+          loading={loadingAll}
+        />
       ) : loading ? (
         <p className="text-sm text-muted-foreground py-8 text-center">Cargando...</p>
       ) : transactions.length === 0 ? (

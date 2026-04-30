@@ -18,7 +18,6 @@ import {
   ChevronDown,
   Check,
   Plus,
-  FileText,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -28,7 +27,6 @@ const baseNavItems = [
   { href: "/dashboard/transactions", label: "Movimientos", icon: ArrowLeftRight },
   { href: "/dashboard/savings", label: "Ahorros", icon: PiggyBank },
   { href: "/dashboard/group", label: "Mi Grupo", icon: Users },
-  { href: "/dashboard/report", label: "Reporte", icon: FileText },
   { href: "/dashboard/settings", label: "Configuración", icon: Settings },
 ]
 
