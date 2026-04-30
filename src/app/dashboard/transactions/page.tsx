@@ -78,44 +78,35 @@ function buildRows(currMap: Record<string, number>, prevMap: Record<string, numb
 
 // ─── Delta badge ──────────────────────────────────────────────────────────────
 function DeltaBadge({ delta, type }: { delta: number | null; type: "income" | "expense" }) {
-  if (delta === null) return <span className="text-xs text-muted-foreground/50">—</span>
+  if (delta === null) return <span className="text-xs text-slate-300">—</span>
   if (delta === 0)
     return (
-      <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500">
         <Minus className="h-3 w-3" /> 0%
       </span>
     )
   const isPositive = delta > 0
-  // income: more = good (green). expense: more = bad (red)
   const isGood = type === "income" ? isPositive : !isPositive
   return (
-    <span
-      className={cn(
-        "flex items-center gap-0.5 text-xs font-semibold tabular-nums",
-        isGood ? "text-green-600" : "text-red-500"
-      )}
-    >
+    <span className={cn(
+      "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold tabular-nums",
+      isGood
+        ? "bg-green-100 text-green-700"
+        : "bg-red-100 text-red-600"
+    )}>
       {isPositive ? <ArrowUp className="h-3 w-3 shrink-0" /> : <ArrowDown className="h-3 w-3 shrink-0" />}
       {Math.abs(delta)}%
     </span>
   )
 }
 
-// ─── Recibo de sueldo comparison table ───────────────────────────────────────
+// ─── Recibo de sueldo — Excel-style comparison table ─────────────────────────
 function ReciboDeSueldo({
-  current,
-  prev,
-  currentLabel,
-  prevLabel,
-  displayCurrency,
-  rate,
+  current, prev, currentLabel, prevLabel, displayCurrency, rate,
 }: {
-  current: Tx[]
-  prev: Tx[]
-  currentLabel: string
-  prevLabel: string
-  displayCurrency: "ARS" | "USD"
-  rate: Rate
+  current: Tx[]; prev: Tx[]
+  currentLabel: string; prevLabel: string
+  displayCurrency: "ARS" | "USD"; rate: Rate
 }) {
   const currIncome  = useMemo(() => aggregateTxs(current, "income",  rate, displayCurrency), [current, rate, displayCurrency])
   const prevIncome  = useMemo(() => aggregateTxs(prev,    "income",  rate, displayCurrency), [prev,    rate, displayCurrency])
@@ -137,49 +128,58 @@ function ReciboDeSueldo({
 
   const sobrante     = totalCurrIncome - totalCurrExpense - totalCurrSaving
   const prevSobrante = totalPrevIncome - totalPrevExpense - totalPrevSaving
-  const sobranteDelta =
-    prevSobrante !== 0
-      ? Math.round(((sobrante - prevSobrante) / Math.abs(prevSobrante)) * 100)
-      : null
+  const sobranteDelta = prevSobrante !== 0
+    ? Math.round(((sobrante - prevSobrante) / Math.abs(prevSobrante)) * 100)
+    : null
 
   const fmt = (v: number) => formatCurrency(v, displayCurrency)
 
   if (current.length === 0 && prev.length === 0)
-    return <p className="text-sm text-muted-foreground py-12 text-center">Sin datos para comparar</p>
+    return <p className="text-sm text-slate-400 py-12 text-center">Sin datos para comparar</p>
 
-  // Grid column template: concept expands, amounts are fixed width
-  const grid = "grid grid-cols-[1fr_minmax(80px,auto)_minmax(80px,auto)_minmax(52px,auto)]"
+  // Cell border helper
+  const cellBorder = "border-r border-slate-200 last:border-r-0"
 
-  function SectionHeader({ title, color }: { title: string; color: "green" | "red" | "blue" }) {
-    const cls = {
-      green: "bg-green-50 dark:bg-green-950/25 border-green-100 dark:border-green-900/30 text-green-700 dark:text-green-400",
-      red:   "bg-red-50   dark:bg-red-950/25   border-red-100   dark:border-red-900/30   text-red-700   dark:text-red-400",
-      blue:  "bg-blue-50  dark:bg-blue-950/25  border-blue-100  dark:border-blue-900/30  text-blue-700  dark:text-blue-400",
-    }[color]
-    const Icon = color === "green" ? TrendingUp : color === "red" ? TrendingDown : PiggyBank
+  // Base row grid
+  const ROW = "grid grid-cols-[1fr_120px_120px_72px]"
+
+  function ColHeader() {
     return (
-      <div className={cn(grid, "border-y", cls)}>
-        <div className="px-3 py-1.5 col-span-4 text-xs font-bold uppercase tracking-widest flex items-center gap-1.5">
-          <Icon className="h-3.5 w-3.5" /> {title}
-        </div>
+      <div className={cn(ROW, "bg-slate-800 text-white text-xs font-bold uppercase tracking-wider")}>
+        <div className={cn("px-4 py-3", cellBorder)}>Concepto</div>
+        <div className={cn("px-3 py-3 text-right capitalize", cellBorder)}>{currentLabel}</div>
+        <div className={cn("px-3 py-3 text-right capitalize", cellBorder)}>{prevLabel}</div>
+        <div className="px-3 py-3 text-center">Δ%</div>
       </div>
     )
   }
 
-  function DataRow({ row, type }: { row: AggRow; type: "income" | "expense" }) {
+  function SectionHeader({ label, color }: { label: string; color: "green" | "red" | "blue" }) {
+    const cls = {
+      green: "bg-green-600 text-white",
+      red:   "bg-red-600   text-white",
+      blue:  "bg-blue-600  text-white",
+    }[color]
+    const Icon = color === "green" ? TrendingUp : color === "red" ? TrendingDown : PiggyBank
     return (
-      <div className={cn(grid, "border-b last:border-0 hover:bg-muted/30 transition-colors")}>
-        <div className="px-3 py-2 text-sm font-medium truncate">{row.key}</div>
-        <div className={cn(
-          "px-2 py-2 text-right tabular-nums text-sm",
-          type === "income" ? "text-green-700 dark:text-green-400" : "text-red-600"
-        )}>
-          {row.curr > 0 ? fmt(row.curr) : <span className="text-muted-foreground/40">—</span>}
+      <div className={cn("px-4 py-2 text-xs font-bold uppercase tracking-widest flex items-center gap-2", cls)}>
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+    )
+  }
+
+  function DataRow({ row, type, idx }: { row: AggRow; type: "income" | "expense"; idx: number }) {
+    const amtColor = type === "income" ? "text-green-700" : "text-red-600"
+    return (
+      <div className={cn(ROW, "border-t border-slate-100", idx % 2 === 0 ? "bg-white" : "bg-slate-50/60")}>
+        <div className={cn("px-4 py-2.5 text-sm text-slate-700 truncate", cellBorder)}>{row.key}</div>
+        <div className={cn("px-3 py-2.5 text-right text-sm font-mono font-semibold", amtColor, cellBorder)}>
+          {row.curr > 0 ? fmt(row.curr) : <span className="text-slate-300 font-normal">—</span>}
         </div>
-        <div className="px-2 py-2 text-right tabular-nums text-sm text-muted-foreground">
-          {row.prev > 0 ? fmt(row.prev) : <span className="text-muted-foreground/40">—</span>}
+        <div className={cn("px-3 py-2.5 text-right text-sm font-mono text-slate-400", cellBorder)}>
+          {row.prev > 0 ? fmt(row.prev) : <span className="text-slate-200">—</span>}
         </div>
-        <div className="px-2 py-2 flex justify-end items-center">
+        <div className="px-3 py-2.5 flex justify-center items-center">
           <DeltaBadge delta={row.delta} type={type} />
         </div>
       </div>
@@ -187,22 +187,21 @@ function ReciboDeSueldo({
   }
 
   function TotalRow({
-    label, curr, prev, type, bold = true,
-  }: { label: string; curr: number; prev: number; type: "income" | "expense"; bold?: boolean }) {
+    label, curr, prev, type,
+  }: { label: string; curr: number; prev: number; type: "income" | "expense" }) {
     const delta = prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null
-    const colorCls = type === "income"
-      ? "bg-green-50/60 dark:bg-green-950/10 text-green-800 dark:text-green-300"
-      : "bg-red-50/60   dark:bg-red-950/10   text-red-700   dark:text-red-400"
+    const cls = type === "income"
+      ? "bg-green-100 text-green-900 border-t-2 border-green-300"
+      : "bg-red-100   text-red-900   border-t-2 border-red-300"
+    const amtCls = type === "income" ? "text-green-800" : "text-red-700"
     return (
-      <div className={cn(grid, "border-t", colorCls)}>
-        <div className={cn("px-3 py-2 text-sm", bold && "font-bold")}>{label}</div>
-        <div className={cn("px-2 py-2 text-right tabular-nums text-sm", bold && "font-bold")}>
-          {fmt(curr)}
+      <div className={cn(ROW, cls)}>
+        <div className={cn("px-4 py-2.5 text-xs font-bold uppercase tracking-wide", cellBorder)}>{label}</div>
+        <div className={cn("px-3 py-2.5 text-right font-mono font-bold text-sm", amtCls, cellBorder)}>{fmt(curr)}</div>
+        <div className={cn("px-3 py-2.5 text-right font-mono text-sm text-slate-500 font-medium", cellBorder)}>
+          {prev > 0 ? fmt(prev) : <span className="text-slate-300">—</span>}
         </div>
-        <div className="px-2 py-2 text-right tabular-nums text-sm text-muted-foreground font-medium">
-          {prev > 0 ? fmt(prev) : <span className="text-muted-foreground/40">—</span>}
-        </div>
-        <div className="px-2 py-2 flex justify-end items-center">
+        <div className="px-3 py-2.5 flex justify-center items-center">
           <DeltaBadge delta={delta} type={type} />
         </div>
       </div>
@@ -210,91 +209,92 @@ function ReciboDeSueldo({
   }
 
   return (
-    <div className="rounded-xl border overflow-hidden">
-      {/* Column headers */}
-      <div className={cn(grid, "bg-muted/80 border-b")}>
-        <div className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">Concepto</div>
-        <div className="px-2 py-2.5 text-xs font-bold uppercase tracking-wide text-muted-foreground text-right capitalize">{currentLabel}</div>
-        <div className="px-2 py-2.5 text-xs font-bold uppercase tracking-wide text-muted-foreground text-right capitalize">{prevLabel}</div>
-        <div className="px-2 py-2.5 text-xs font-bold uppercase tracking-wide text-muted-foreground text-right">Δ%</div>
-      </div>
+    <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+      <div className="min-w-[460px]">
+        <ColHeader />
 
-      {/* ── INGRESOS ── */}
-      {incomeRows.length > 0 && (
-        <>
-          <SectionHeader title="Ingresos" color="green" />
-          {incomeRows.map(row => <DataRow key={row.key} row={row} type="income" />)}
-          <TotalRow label="Total ingresos" curr={totalCurrIncome} prev={totalPrevIncome} type="income" />
-        </>
-      )}
+        {/* ── INGRESOS ── */}
+        {incomeRows.length > 0 && (
+          <>
+            <SectionHeader label="Ingresos" color="green" />
+            {incomeRows.map((row, i) => <DataRow key={row.key} row={row} type="income" idx={i} />)}
+            <TotalRow label="Total ingresos" curr={totalCurrIncome} prev={totalPrevIncome} type="income" />
+          </>
+        )}
 
-      {/* ── EGRESOS ── */}
-      {expenseRows.length > 0 && (
-        <>
-          <SectionHeader title="Egresos" color="red" />
-          {expenseRows.map(row => <DataRow key={row.key} row={row} type="expense" />)}
-          <TotalRow label="Total egresos" curr={totalCurrExpense} prev={totalPrevExpense} type="expense" />
-        </>
-      )}
+        {/* ── EGRESOS ── */}
+        {expenseRows.length > 0 && (
+          <>
+            <SectionHeader label="Egresos" color="red" />
+            {expenseRows.map((row, i) => <DataRow key={row.key} row={row} type="expense" idx={i} />)}
+            <TotalRow label="Total egresos" curr={totalCurrExpense} prev={totalPrevExpense} type="expense" />
+          </>
+        )}
 
-      {/* ── AHORROS ── */}
-      {savingRows.length > 0 && (
-        <>
-          <SectionHeader title="Ahorros" color="blue" />
-          {savingRows.map(row => (
-            <div key={row.key} className={cn(grid, "border-b last:border-0 hover:bg-muted/30 transition-colors")}>
-              <div className="px-3 py-2 text-sm font-medium truncate">{row.key}</div>
-              <div className="px-2 py-2 text-right tabular-nums text-sm text-blue-600">
-                {row.curr > 0 ? fmt(row.curr) : <span className="text-muted-foreground/40">—</span>}
+        {/* ── AHORROS ── */}
+        {savingRows.length > 0 && (
+          <>
+            <SectionHeader label="Ahorros" color="blue" />
+            {savingRows.map((row, i) => (
+              <div key={row.key} className={cn(ROW, "border-t border-slate-100", i % 2 === 0 ? "bg-white" : "bg-slate-50/60")}>
+                <div className={cn("px-4 py-2.5 text-sm text-slate-700 truncate", cellBorder)}>{row.key}</div>
+                <div className={cn("px-3 py-2.5 text-right font-mono font-semibold text-sm text-blue-700", cellBorder)}>
+                  {row.curr > 0 ? fmt(row.curr) : <span className="text-slate-300 font-normal">—</span>}
+                </div>
+                <div className={cn("px-3 py-2.5 text-right font-mono text-sm text-slate-400", cellBorder)}>
+                  {row.prev > 0 ? fmt(row.prev) : <span className="text-slate-200">—</span>}
+                </div>
+                <div className="px-3 py-2.5 flex justify-center items-center">
+                  <DeltaBadge delta={row.delta} type="income" />
+                </div>
               </div>
-              <div className="px-2 py-2 text-right tabular-nums text-sm text-muted-foreground">
-                {row.prev > 0 ? fmt(row.prev) : <span className="text-muted-foreground/40">—</span>}
+            ))}
+            {savingRows.length > 1 && (
+              <div className={cn(ROW, "bg-blue-100 border-t-2 border-blue-300 text-blue-900")}>
+                <div className={cn("px-4 py-2.5 text-xs font-bold uppercase tracking-wide", cellBorder)}>Total ahorros</div>
+                <div className={cn("px-3 py-2.5 text-right font-mono font-bold text-sm text-blue-800", cellBorder)}>{fmt(totalCurrSaving)}</div>
+                <div className={cn("px-3 py-2.5 text-right font-mono text-sm text-slate-500 font-medium", cellBorder)}>
+                  {totalPrevSaving > 0 ? fmt(totalPrevSaving) : <span className="text-slate-300">—</span>}
+                </div>
+                <div className="px-3 py-2.5 flex justify-center items-center">
+                  <DeltaBadge delta={totalPrevSaving > 0 ? Math.round(((totalCurrSaving - totalPrevSaving) / totalPrevSaving) * 100) : null} type="income" />
+                </div>
               </div>
-              <div className="px-2 py-2 flex justify-end items-center">
-                <DeltaBadge delta={row.delta} type="income" />
-              </div>
-            </div>
-          ))}
-          {savingRows.length > 1 && (
-            <div className={cn(grid, "border-t bg-blue-50/60 dark:bg-blue-950/10")}>
-              <div className="px-3 py-2 text-sm font-bold text-blue-700 dark:text-blue-400">Total ahorros</div>
-              <div className="px-2 py-2 text-right tabular-nums text-sm font-bold text-blue-600">{fmt(totalCurrSaving)}</div>
-              <div className="px-2 py-2 text-right tabular-nums text-sm text-muted-foreground font-medium">
-                {totalPrevSaving > 0 ? fmt(totalPrevSaving) : <span className="text-muted-foreground/40">—</span>}
-              </div>
-              <div className="px-2 py-2 flex justify-end items-center">
-                <DeltaBadge delta={totalPrevSaving > 0 ? Math.round(((totalCurrSaving - totalPrevSaving) / totalPrevSaving) * 100) : null} type="income" />
-              </div>
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
 
-      {/* ── SOBRANTE ── */}
-      <div className={cn(
-        grid, "border-t-2",
-        sobrante >= 0
-          ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-700"
-          : "bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700"
-      )}>
+        {/* ── SOBRANTE / FALTANTE — prominent closing row ── */}
         <div className={cn(
-          "px-3 py-3 font-bold text-base flex items-center gap-2",
-          sobrante >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-orange-700 dark:text-orange-400"
+          ROW,
+          sobrante >= 0 ? "bg-emerald-600" : "bg-orange-500",
+          "text-white"
         )}>
-          <Wallet className="h-4 w-4" />
-          {sobrante >= 0 ? "Sobrante" : "Faltante"}
-        </div>
-        <div className={cn(
-          "px-2 py-3 text-right tabular-nums font-bold text-base",
-          sobrante >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-orange-600"
-        )}>
-          {fmt(Math.abs(sobrante))}
-        </div>
-        <div className="px-2 py-3 text-right tabular-nums font-semibold text-muted-foreground">
-          {prevSobrante !== 0 ? fmt(Math.abs(prevSobrante)) : <span className="text-muted-foreground/40">—</span>}
-        </div>
-        <div className="px-2 py-3 flex justify-end items-center">
-          <DeltaBadge delta={sobranteDelta} type="income" />
+          <div className={cn("px-4 py-4 font-bold text-sm flex items-center gap-2", cellBorder)}>
+            <Wallet className="h-4 w-4" />
+            {sobrante >= 0 ? "SOBRANTE" : "FALTANTE"}
+          </div>
+          <div className={cn("px-3 py-4 text-right font-mono font-bold text-base", cellBorder)}>
+            {fmt(Math.abs(sobrante))}
+          </div>
+          <div className={cn("px-3 py-4 text-right font-mono text-sm font-medium text-white/70", cellBorder)}>
+            {prevSobrante !== 0 ? fmt(Math.abs(prevSobrante)) : "—"}
+          </div>
+          <div className="px-3 py-4 flex justify-center items-center">
+            {sobranteDelta !== null && sobranteDelta !== 0 ? (
+              <span className={cn(
+                "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold",
+                "bg-white/20 text-white"
+              )}>
+                {sobranteDelta > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                {Math.abs(sobranteDelta)}%
+              </span>
+            ) : sobranteDelta === 0 ? (
+              <span className="text-xs text-white/60">= 0%</span>
+            ) : (
+              <span className="text-xs text-white/40">—</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
