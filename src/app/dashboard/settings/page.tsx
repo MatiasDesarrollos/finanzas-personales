@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useUser, useCategories, useBudgets } from "@/hooks/use-supabase"
 import { Button } from "@/components/ui/button"
@@ -13,21 +13,42 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Settings, Tag, Target, X } from "lucide-react"
+import { Plus, Trash2, Settings, Tag, Target, X, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const supabase = createClient()
-type Tab = "categorias" | "presupuestos"
+type Tab = "perfil" | "categorias" | "presupuestos"
 
 export default function SettingsPage() {
   const userId = useUser()
   const { categories, refresh: refreshCategories } = useCategories(userId)
   const { budgets, refresh: refreshBudgets, upsertBudget, deleteBudget } = useBudgets(userId)
 
-  const [tab, setTab] = useState<Tab>("categorias")
+  const [tab, setTab] = useState<Tab>("perfil")
   const [newCatName, setNewCatName] = useState("")
   const [newCatType, setNewCatType] = useState<"income" | "expense">("expense")
   const [saving, setSaving] = useState(false)
+
+  const [profile, setProfile] = useState({ display_name: "", preferred_currency: "ARS" as "ARS" | "USD" })
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileLoaded, setProfileLoaded] = useState(false)
+
+  // Load profile on mount
+  useEffect(() => {
+    if (!userId || profileLoaded) return
+    supabase.from("profiles").select("display_name, preferred_currency").eq("id", userId).single()
+      .then(({ data }) => {
+        if (data) setProfile({ display_name: data.display_name ?? "", preferred_currency: (data.preferred_currency ?? "ARS") as "ARS" | "USD" })
+        setProfileLoaded(true)
+      })
+  }, [userId, profileLoaded])
+
+  async function handleSaveProfile() {
+    if (!userId) return
+    setProfileSaving(true)
+    await supabase.from("profiles").upsert({ id: userId, display_name: profile.display_name, preferred_currency: profile.preferred_currency })
+    setProfileSaving(false)
+  }
 
   // Budget inputs keyed by categoryId
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({})
@@ -76,6 +97,7 @@ export default function SettingsPage() {
   if (!userId) return null
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: "perfil", label: "Perfil", icon: <User className="h-4 w-4" /> },
     { key: "categorias", label: "Categorías", icon: <Tag className="h-4 w-4" /> },
     { key: "presupuestos", label: "Presupuestos", icon: <Target className="h-4 w-4" /> },
   ]
@@ -103,6 +125,49 @@ export default function SettingsPage() {
           </button>
         ))}
       </div>
+
+      {/* ─── PERFIL ───────────────────────────────── */}
+      {tab === "perfil" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <User className="h-4 w-4" /> Mi Perfil
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nombre para mostrar</Label>
+              <Input
+                placeholder="Tu nombre"
+                value={profile.display_name}
+                onChange={e => setProfile(p => ({ ...p, display_name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Moneda preferida</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {(["ARS", "USD"] as const).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setProfile(p => ({ ...p, preferred_currency: c }))}
+                    className={`border-2 rounded-xl p-3 text-center transition-all ${
+                      profile.preferred_currency === c
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-muted-foreground"
+                    }`}
+                  >
+                    <p className="font-bold">{c}</p>
+                    <p className="text-xs text-muted-foreground">{c === "ARS" ? "Pesos argentinos" : "Dólares"}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Button onClick={handleSaveProfile} disabled={profileSaving} className="w-full">
+              {profileSaving ? "Guardando..." : "Guardar perfil"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ─── CATEGORÍAS ───────────────────────────── */}
       {tab === "categorias" && (

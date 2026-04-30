@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Plus_Jakarta_Sans, Playfair_Display, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
+import { ThemeProvider } from "@/components/theme-provider"
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-sans",
@@ -52,7 +53,9 @@ export default function RootLayout({
       lang="es"
       className={`${jakarta.variable} ${playfair.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   )
 }

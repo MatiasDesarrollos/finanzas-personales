@@ -18,17 +18,15 @@ import {
   ChevronDown,
   Check,
   Plus,
-  CreditCard,
   FileText,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
 const baseNavItems = [
-  { href: "/dashboard", label: "Resumen", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Inicio", icon: LayoutDashboard },
   { href: "/dashboard/transactions", label: "Movimientos", icon: ArrowLeftRight },
   { href: "/dashboard/savings", label: "Ahorros", icon: PiggyBank },
-  { href: "/dashboard/installments", label: "Cuotas", icon: CreditCard },
   { href: "/dashboard/group", label: "Mi Grupo", icon: Users },
   { href: "/dashboard/report", label: "Reporte", icon: FileText },
   { href: "/dashboard/settings", label: "Configuración", icon: Settings },
