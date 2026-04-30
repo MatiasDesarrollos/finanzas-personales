@@ -23,6 +23,7 @@ import {
   Plus, ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, PiggyBank, Wallet,
   Repeat2, ArrowUp, ArrowDown, Minus, Copy, Check,
+  Pencil, Trash2, ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -102,11 +103,13 @@ function DeltaBadge({ delta, type }: { delta: number | null; type: "income" | "e
 
 // ─── Recibo de sueldo — Excel-style comparison table ─────────────────────────
 function ReciboDeSueldo({
-  current, prev, currentLabel, prevLabel, displayCurrency, rate,
+  current, prev, currentLabel, prevLabel, displayCurrency, rate, onEdit, onDelete,
 }: {
   current: Tx[]; prev: Tx[]
   currentLabel: string; prevLabel: string
   displayCurrency: "ARS" | "USD"; rate: Rate
+  onEdit?: (t: Tx) => void
+  onDelete?: (id: string) => void
 }) {
   const currIncome  = useMemo(() => aggregateTxs(current, "income",  rate, displayCurrency), [current, rate, displayCurrency])
   const prevIncome  = useMemo(() => aggregateTxs(prev,    "income",  rate, displayCurrency), [prev,    rate, displayCurrency])
@@ -137,11 +140,8 @@ function ReciboDeSueldo({
   if (current.length === 0 && prev.length === 0)
     return <p className="text-sm text-slate-400 py-12 text-center">Sin datos para comparar</p>
 
-  // Cell border helper
   const cellBorder = "border-r border-slate-200 last:border-r-0"
-
-  // Base row grid
-  const ROW = "grid grid-cols-[1fr_120px_120px_72px]"
+  const ROW = "grid grid-cols-[1fr_112px_112px_68px]"
 
   function ColHeader() {
     return (
@@ -155,11 +155,7 @@ function ReciboDeSueldo({
   }
 
   function SectionHeader({ label, color }: { label: string; color: "green" | "red" | "blue" }) {
-    const cls = {
-      green: "bg-green-600 text-white",
-      red:   "bg-red-600   text-white",
-      blue:  "bg-blue-600  text-white",
-    }[color]
+    const cls = { green: "bg-green-600 text-white", red: "bg-red-600 text-white", blue: "bg-blue-600 text-white" }[color]
     const Icon = color === "green" ? TrendingUp : color === "red" ? TrendingDown : PiggyBank
     return (
       <div className={cn("px-4 py-2 text-xs font-bold uppercase tracking-widest flex items-center gap-2", cls)}>
@@ -168,37 +164,93 @@ function ReciboDeSueldo({
     )
   }
 
-  function DataRow({ row, type, idx }: { row: AggRow; type: "income" | "expense"; idx: number }) {
+  function DataRow({ row, type, idx, mode }: {
+    row: AggRow; type: "income" | "expense"; idx: number; mode: "income" | "expense"
+  }) {
+    const [expanded, setExpanded] = useState(false)
     const amtColor = type === "income" ? "text-green-700" : "text-red-600"
+
+    const matchingTxs = current.filter(t => {
+      if (mode === "income" && t.type !== "income") return false
+      if (mode === "expense" && (t.type !== "expense" || isSavingTransaction(t.description))) return false
+      return (t.categories?.name ?? t.description ?? "Sin categoría") === row.key
+    })
+
+    const canExpand = matchingTxs.length > 0 && (onEdit || onDelete)
+    const bgClass = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+
     return (
-      <div className={cn(ROW, "border-t border-slate-100", idx % 2 === 0 ? "bg-white" : "bg-slate-50/60")}>
-        <div className={cn("px-4 py-2.5 text-sm text-slate-700 truncate", cellBorder)}>{row.key}</div>
-        <div className={cn("px-3 py-2.5 text-right text-sm font-mono font-semibold", amtColor, cellBorder)}>
-          {row.curr > 0 ? fmt(row.curr) : <span className="text-slate-300 font-normal">—</span>}
+      <>
+        <div className={cn(ROW, "border-t border-slate-100", bgClass)}>
+          <div
+            className={cn("px-4 py-2.5 text-xs text-slate-700 flex items-center gap-1.5", cellBorder, canExpand && "cursor-pointer hover:text-primary")}
+            onClick={() => canExpand && setExpanded(e => !e)}
+          >
+            <span className="flex-1 truncate font-medium">{row.key}</span>
+            {canExpand && (
+              <ChevronDown className={cn("h-3 w-3 text-slate-400 shrink-0 transition-transform", expanded && "rotate-180")} />
+            )}
+          </div>
+          <div className={cn("px-3 py-2.5 text-right text-xs font-mono font-semibold tabular-nums", amtColor, cellBorder)}>
+            {row.curr > 0 ? fmt(row.curr) : <span className="text-slate-300 font-normal">—</span>}
+          </div>
+          <div className={cn("px-3 py-2.5 text-right text-xs font-mono text-slate-400 tabular-nums", cellBorder)}>
+            {row.prev > 0 ? fmt(row.prev) : <span className="text-slate-200">—</span>}
+          </div>
+          <div className="px-3 py-2.5 flex justify-center items-center">
+            <DeltaBadge delta={row.delta} type={type} />
+          </div>
         </div>
-        <div className={cn("px-3 py-2.5 text-right text-sm font-mono text-slate-400", cellBorder)}>
-          {row.prev > 0 ? fmt(row.prev) : <span className="text-slate-200">—</span>}
-        </div>
-        <div className="px-3 py-2.5 flex justify-center items-center">
-          <DeltaBadge delta={row.delta} type={type} />
-        </div>
-      </div>
+
+        {/* Expanded individual transactions */}
+        {expanded && matchingTxs.map(t => (
+          <div key={t.id} className={cn(ROW, "border-t border-slate-100/60 bg-slate-50")}>
+            <div className={cn("pl-8 pr-3 py-2 flex items-center gap-1.5 min-w-0", cellBorder)}>
+              <span className="text-xs text-slate-500 truncate flex-1">
+                {t.description && !isSavingTransaction(t.description) ? t.description : (t.categories?.name ?? "—")}
+              </span>
+              <span className="text-xs text-slate-400 shrink-0">
+                {format(new Date(t.date + "T12:00:00"), "dd/MM")}
+              </span>
+              {onEdit && (
+                <button
+                  onClick={e => { e.stopPropagation(); onEdit(t) }}
+                  className="shrink-0 p-0.5 rounded text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este movimiento?")) onDelete(t.id) }}
+                  className="shrink-0 p-0.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <div className={cn("px-3 py-2 text-right text-xs font-mono tabular-nums font-medium", amtColor, cellBorder)}>
+              {formatCurrency(t.amount, t.currency)}
+            </div>
+            <div className={cn("px-3 py-2", cellBorder)} />
+            <div className="px-3 py-2" />
+          </div>
+        ))}
+      </>
     )
   }
 
-  function TotalRow({
-    label, curr, prev, type,
-  }: { label: string; curr: number; prev: number; type: "income" | "expense" }) {
+  function TotalRow({ label, curr, prev, type }: { label: string; curr: number; prev: number; type: "income" | "expense" }) {
     const delta = prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null
     const cls = type === "income"
       ? "bg-green-100 text-green-900 border-t-2 border-green-300"
-      : "bg-red-100   text-red-900   border-t-2 border-red-300"
+      : "bg-red-100 text-red-900 border-t-2 border-red-300"
     const amtCls = type === "income" ? "text-green-800" : "text-red-700"
     return (
       <div className={cn(ROW, cls)}>
         <div className={cn("px-4 py-2.5 text-xs font-bold uppercase tracking-wide", cellBorder)}>{label}</div>
-        <div className={cn("px-3 py-2.5 text-right font-mono font-bold text-sm", amtCls, cellBorder)}>{fmt(curr)}</div>
-        <div className={cn("px-3 py-2.5 text-right font-mono text-sm text-slate-500 font-medium", cellBorder)}>
+        <div className={cn("px-3 py-2.5 text-right font-mono font-bold text-xs tabular-nums", amtCls, cellBorder)}>{fmt(curr)}</div>
+        <div className={cn("px-3 py-2.5 text-right font-mono text-xs text-slate-500 font-medium tabular-nums", cellBorder)}>
           {prev > 0 ? fmt(prev) : <span className="text-slate-300">—</span>}
         </div>
         <div className="px-3 py-2.5 flex justify-center items-center">
@@ -217,7 +269,7 @@ function ReciboDeSueldo({
         {incomeRows.length > 0 && (
           <>
             <SectionHeader label="Ingresos" color="green" />
-            {incomeRows.map((row, i) => <DataRow key={row.key} row={row} type="income" idx={i} />)}
+            {incomeRows.map((row, i) => <DataRow key={row.key} row={row} type="income" idx={i} mode="income" />)}
             <TotalRow label="Total ingresos" curr={totalCurrIncome} prev={totalPrevIncome} type="income" />
           </>
         )}
@@ -226,7 +278,7 @@ function ReciboDeSueldo({
         {expenseRows.length > 0 && (
           <>
             <SectionHeader label="Egresos" color="red" />
-            {expenseRows.map((row, i) => <DataRow key={row.key} row={row} type="expense" idx={i} />)}
+            {expenseRows.map((row, i) => <DataRow key={row.key} row={row} type="expense" idx={i} mode="expense" />)}
             <TotalRow label="Total egresos" curr={totalCurrExpense} prev={totalPrevExpense} type="expense" />
           </>
         )}
@@ -235,25 +287,25 @@ function ReciboDeSueldo({
         {savingRows.length > 0 && (
           <>
             <SectionHeader label="Ahorros" color="blue" />
-            {savingRows.map((row, i) => (
-              <div key={row.key} className={cn(ROW, "border-t border-slate-100", i % 2 === 0 ? "bg-white" : "bg-slate-50/60")}>
-                <div className={cn("px-4 py-2.5 text-sm text-slate-700 truncate", cellBorder)}>{row.key}</div>
-                <div className={cn("px-3 py-2.5 text-right font-mono font-semibold text-sm text-blue-700", cellBorder)}>
-                  {row.curr > 0 ? fmt(row.curr) : <span className="text-slate-300 font-normal">—</span>}
-                </div>
-                <div className={cn("px-3 py-2.5 text-right font-mono text-sm text-slate-400", cellBorder)}>
-                  {row.prev > 0 ? fmt(row.prev) : <span className="text-slate-200">—</span>}
-                </div>
-                <div className="px-3 py-2.5 flex justify-center items-center">
-                  <DeltaBadge delta={row.delta} type="income" />
-                </div>
-              </div>
-            ))}
+            {savingRows.map((row, i) => {
+              const matchingSavings = current.filter(t =>
+                isSavingTransaction(t.description) &&
+                ((t.description ?? "").replace(/^\[Ahorro\]\s*/, "") || "Ahorro general") === row.key
+              )
+              return (
+                <SavingRow
+                  key={row.key} row={row} idx={i}
+                  matchingTxs={matchingSavings}
+                  ROW={ROW} cellBorder={cellBorder} fmt={fmt}
+                  onEdit={onEdit} onDelete={onDelete}
+                />
+              )
+            })}
             {savingRows.length > 1 && (
               <div className={cn(ROW, "bg-blue-100 border-t-2 border-blue-300 text-blue-900")}>
                 <div className={cn("px-4 py-2.5 text-xs font-bold uppercase tracking-wide", cellBorder)}>Total ahorros</div>
-                <div className={cn("px-3 py-2.5 text-right font-mono font-bold text-sm text-blue-800", cellBorder)}>{fmt(totalCurrSaving)}</div>
-                <div className={cn("px-3 py-2.5 text-right font-mono text-sm text-slate-500 font-medium", cellBorder)}>
+                <div className={cn("px-3 py-2.5 text-right font-mono font-bold text-xs tabular-nums text-blue-800", cellBorder)}>{fmt(totalCurrSaving)}</div>
+                <div className={cn("px-3 py-2.5 text-right font-mono text-xs text-slate-500 font-medium tabular-nums", cellBorder)}>
                   {totalPrevSaving > 0 ? fmt(totalPrevSaving) : <span className="text-slate-300">—</span>}
                 </div>
                 <div className="px-3 py-2.5 flex justify-center items-center">
@@ -264,28 +316,21 @@ function ReciboDeSueldo({
           </>
         )}
 
-        {/* ── SOBRANTE / FALTANTE — prominent closing row ── */}
-        <div className={cn(
-          ROW,
-          sobrante >= 0 ? "bg-emerald-600" : "bg-orange-500",
-          "text-white"
-        )}>
-          <div className={cn("px-4 py-4 font-bold text-sm flex items-center gap-2", cellBorder)}>
+        {/* ── SOBRANTE / FALTANTE ── */}
+        <div className={cn(ROW, sobrante >= 0 ? "bg-emerald-600" : "bg-orange-500", "text-white")}>
+          <div className={cn("px-4 py-3.5 font-bold text-sm flex items-center gap-2", cellBorder)}>
             <Wallet className="h-4 w-4" />
             {sobrante >= 0 ? "SOBRANTE" : "FALTANTE"}
           </div>
-          <div className={cn("px-3 py-4 text-right font-mono font-bold text-base", cellBorder)}>
+          <div className={cn("px-3 py-3.5 text-right font-mono font-bold text-xs tabular-nums", cellBorder)}>
             {fmt(Math.abs(sobrante))}
           </div>
-          <div className={cn("px-3 py-4 text-right font-mono text-sm font-medium text-white/70", cellBorder)}>
+          <div className={cn("px-3 py-3.5 text-right font-mono text-xs font-medium text-white/70 tabular-nums", cellBorder)}>
             {prevSobrante !== 0 ? fmt(Math.abs(prevSobrante)) : "—"}
           </div>
-          <div className="px-3 py-4 flex justify-center items-center">
+          <div className="px-3 py-3.5 flex justify-center items-center">
             {sobranteDelta !== null && sobranteDelta !== 0 ? (
-              <span className={cn(
-                "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold",
-                "bg-white/20 text-white"
-              )}>
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold bg-white/20 text-white">
                 {sobranteDelta > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
                 {Math.abs(sobranteDelta)}%
               </span>
@@ -298,6 +343,64 @@ function ReciboDeSueldo({
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Saving row (expandable, used inside ReciboDeSueldo) ──────────────────────
+function SavingRow({ row, idx, matchingTxs, ROW, cellBorder, fmt, onEdit, onDelete }: {
+  row: AggRow; idx: number; matchingTxs: Tx[]
+  ROW: string; cellBorder: string; fmt: (v: number) => string
+  onEdit?: (t: Tx) => void; onDelete?: (id: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const canExpand = matchingTxs.length > 0 && (onEdit || onDelete)
+  const bgClass = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+  return (
+    <>
+      <div className={cn(ROW, "border-t border-slate-100", bgClass)}>
+        <div
+          className={cn("px-4 py-2.5 text-xs text-slate-700 flex items-center gap-1.5", cellBorder, canExpand && "cursor-pointer hover:text-primary")}
+          onClick={() => canExpand && setExpanded(e => !e)}
+        >
+          <span className="flex-1 truncate font-medium">{row.key}</span>
+          {canExpand && <ChevronDown className={cn("h-3 w-3 text-slate-400 shrink-0 transition-transform", expanded && "rotate-180")} />}
+        </div>
+        <div className={cn("px-3 py-2.5 text-right font-mono font-semibold text-xs tabular-nums text-blue-700", cellBorder)}>
+          {row.curr > 0 ? fmt(row.curr) : <span className="text-slate-300 font-normal">—</span>}
+        </div>
+        <div className={cn("px-3 py-2.5 text-right font-mono text-xs text-slate-400 tabular-nums", cellBorder)}>
+          {row.prev > 0 ? fmt(row.prev) : <span className="text-slate-200">—</span>}
+        </div>
+        <div className="px-3 py-2.5 flex justify-center items-center">
+          <DeltaBadge delta={row.delta} type="income" />
+        </div>
+      </div>
+      {expanded && matchingTxs.map(t => (
+        <div key={t.id} className={cn(ROW, "border-t border-slate-100/60 bg-slate-50")}>
+          <div className={cn("pl-8 pr-3 py-2 flex items-center gap-1.5 min-w-0", cellBorder)}>
+            <span className="text-xs text-slate-500 truncate flex-1">
+              {(t.description ?? "").replace(/^\[Ahorro\]\s*/, "") || "Ahorro general"}
+            </span>
+            <span className="text-xs text-slate-400 shrink-0">{format(new Date(t.date + "T12:00:00"), "dd/MM")}</span>
+            {onEdit && (
+              <button onClick={e => { e.stopPropagation(); onEdit(t) }} className="shrink-0 p-0.5 rounded text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                <Pencil className="h-3 w-3" />
+              </button>
+            )}
+            {onDelete && (
+              <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este movimiento?")) onDelete(t.id) }} className="shrink-0 p-0.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <div className={cn("px-3 py-2 text-right text-xs font-mono tabular-nums font-medium text-blue-700", cellBorder)}>
+            {formatCurrency(t.amount, t.currency)}
+          </div>
+          <div className={cn("px-3 py-2", cellBorder)} />
+          <div className="px-3 py-2" />
+        </div>
+      ))}
+    </>
   )
 }
 
@@ -1100,6 +1203,8 @@ export default function TransactionsPage() {
           prevLabel={shortPrevMonthLabel}
           displayCurrency={displayCurrency}
           rate={rate}
+          onEdit={openEdit}
+          onDelete={handleDelete}
         />
       )}
     </div>
