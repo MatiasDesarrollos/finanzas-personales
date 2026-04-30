@@ -20,9 +20,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Plus, Trash2, Pencil, ChevronLeft, ChevronRight,
+  Plus, ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, PiggyBank, Wallet,
-  RefreshCw, Repeat2, List, BarChart2, ArrowUp, ArrowDown, Minus,
+  RefreshCw, Repeat2, ArrowUp, ArrowDown, Minus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -514,32 +514,6 @@ export default function TransactionsPage() {
 
         {/* Controls */}
         <div className="flex gap-2 flex-wrap items-center">
-          {/* View toggle */}
-          <div className="flex rounded-lg border overflow-hidden">
-            <button
-              onClick={() => setView("lista")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors",
-                view === "lista"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-              )}
-            >
-              <List className="h-3.5 w-3.5" /> Lista
-            </button>
-            <button
-              onClick={() => setView("recibo")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-l transition-colors",
-                view === "recibo"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-              )}
-            >
-              <BarChart2 className="h-3.5 w-3.5" /> Recibo
-            </button>
-          </div>
-
           {/* Currency toggle */}
           <div className="flex gap-1">
             <Button variant={displayCurrency === "ARS" ? "default" : "outline"} size="sm" className="h-8 px-3 text-xs" onClick={() => setDisplayCurrency("ARS")}>
@@ -676,21 +650,12 @@ export default function TransactionsPage() {
       {/* ── Content ────────────────────────────────────────────────────────── */}
       {loading ? (
         <p className="text-sm text-muted-foreground py-8 text-center">Cargando...</p>
-      ) : transactions.length === 0 && view === "lista" ? (
+      ) : transactions.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-sm text-muted-foreground">No hay movimientos para este mes</p>
           </CardContent>
         </Card>
-      ) : view === "lista" ? (
-        <BalanceSheet
-          transactions={transactions}
-          displayCurrency={displayCurrency}
-          rate={rate}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          summary={summary}
-        />
       ) : (
         <ReciboDeSueldo
           current={transactions}
@@ -705,158 +670,3 @@ export default function TransactionsPage() {
   )
 }
 
-// ─── Balance Sheet (Lista view) ───────────────────────────────────────────────
-function TxRow({
-  t, displayCurrency, rate, onEdit, onDelete,
-}: {
-  t: Tx; displayCurrency: "ARS" | "USD"; rate: Rate
-  onEdit: (t: Tx) => void; onDelete: (id: string) => void
-}) {
-  const isAhorro = isSavingTransaction(t.description)
-  const displayDesc =
-    isAhorro
-      ? (t.description ?? "").replace(/^\[Ahorro\]\s*/, "") || "Ahorro"
-      : t.description || t.categories?.name || "Sin descripción"
-  const amt =
-    rate && displayCurrency !== t.currency
-      ? convertCurrency(t.amount, t.currency, displayCurrency, rate)
-      : t.amount
-
-  return (
-    <div className="flex items-center justify-between py-2.5 px-3 gap-2 group hover:bg-muted/40 rounded transition-colors">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate flex items-center gap-1.5">
-          {displayDesc}
-          {t.is_recurring && <Repeat2 className="h-3 w-3 text-muted-foreground shrink-0" aria-label="Fijo" />}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {format(new Date(t.date), "dd/MM/yyyy")}
-          {t.categories?.name ? ` · ${t.categories.name}` : ""}
-        </p>
-      </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <span className={cn(
-          "text-sm font-semibold tabular-nums",
-          t.type === "income" ? "text-green-600" : isAhorro ? "text-blue-600" : "text-red-600"
-        )}>
-          {t.type === "income" ? "+" : "−"}{formatCurrency(amt, displayCurrency)}
-        </span>
-        <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => onEdit(t)}>
-          <Pencil className="h-3 w-3" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => onDelete(t.id)}>
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function BalanceSheet({
-  transactions, displayCurrency, rate, onEdit, onDelete, summary,
-}: {
-  transactions: Tx[]; displayCurrency: "ARS" | "USD"; rate: Rate
-  onEdit: (t: Tx) => void; onDelete: (id: string) => void
-  summary: { income: number; expense: number; savingTotal: number }
-}) {
-  const incomeRows  = transactions.filter(t => t.type === "income")
-  const savingRows  = transactions.filter(t => isSavingTransaction(t.description))
-  const expenseRows = transactions.filter(t => t.type === "expense" && !isSavingTransaction(t.description))
-
-  const expenseByCategory = useMemo(() => {
-    const groups: Record<string, typeof expenseRows> = {}
-    for (const t of expenseRows) {
-      const cat = t.categories?.name ?? "Sin categoría"
-      if (!groups[cat]) groups[cat] = []
-      groups[cat].push(t)
-    }
-    return Object.entries(groups).sort(([, a], [, b]) => {
-      return b.reduce((s, t) => s + t.amount, 0) - a.reduce((s, t) => s + t.amount, 0)
-    })
-  }, [expenseRows])
-
-  const sobrante = summary.income - summary.expense - summary.savingTotal
-  const rowProps = { displayCurrency, rate, onEdit, onDelete }
-
-  return (
-    <div className="space-y-4">
-      {incomeRows.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="bg-green-50 dark:bg-green-950/30 border-b border-green-200 dark:border-green-800 flex items-center justify-between px-3 py-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-green-700 dark:text-green-400 flex items-center gap-1.5">
-              <TrendingUp className="h-3.5 w-3.5" /> Ingresos
-            </span>
-            <span className="text-sm font-bold text-green-700 dark:text-green-400 tabular-nums">
-              +{formatCurrency(summary.income, displayCurrency)}
-            </span>
-          </div>
-          <CardContent className="p-0">
-            {incomeRows.map(t => <TxRow key={t.id} t={t} {...rowProps} />)}
-          </CardContent>
-        </Card>
-      )}
-
-      {expenseRows.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="bg-red-50 dark:bg-red-950/30 border-b border-red-200 dark:border-red-800 flex items-center justify-between px-3 py-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-red-700 dark:text-red-400 flex items-center gap-1.5">
-              <TrendingDown className="h-3.5 w-3.5" /> Gastos
-            </span>
-            <span className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
-              −{formatCurrency(summary.expense, displayCurrency)}
-            </span>
-          </div>
-          <CardContent className="p-0">
-            {expenseByCategory.map(([catName, rows]) => {
-              const catTotal = rows.reduce((s, t) => {
-                const amt = rate && displayCurrency !== t.currency
-                  ? convertCurrency(t.amount, t.currency, displayCurrency, rate) : t.amount
-                return s + amt
-              }, 0)
-              return (
-                <div key={catName} className="border-b last:border-0">
-                  {rows.length > 1 && (
-                    <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40">
-                      <span className="text-xs font-semibold text-muted-foreground">{catName}</span>
-                      <span className="text-xs font-semibold text-muted-foreground tabular-nums">
-                        −{formatCurrency(catTotal, displayCurrency)}
-                      </span>
-                    </div>
-                  )}
-                  {rows.map(t => <TxRow key={t.id} t={t} {...rowProps} />)}
-                </div>
-              )
-            })}
-          </CardContent>
-        </Card>
-      )}
-
-      {savingRows.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-800 flex items-center justify-between px-3 py-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
-              <PiggyBank className="h-3.5 w-3.5" /> Ahorros
-            </span>
-            <span className="text-sm font-bold text-blue-700 dark:text-blue-400 tabular-nums">
-              −{formatCurrency(summary.savingTotal, displayCurrency)}
-            </span>
-          </div>
-          <CardContent className="p-0">
-            {savingRows.map(t => <TxRow key={t.id} t={t} {...rowProps} />)}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className={cn("overflow-hidden border-2", sobrante >= 0 ? "border-green-400 dark:border-green-600" : "border-red-400 dark:border-red-600")}>
-        <div className={cn("flex items-center justify-between px-4 py-3", sobrante >= 0 ? "bg-green-50 dark:bg-green-950/40" : "bg-red-50 dark:bg-red-950/40")}>
-          <span className={cn("text-sm font-bold uppercase tracking-wider flex items-center gap-2", sobrante >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400")}>
-            <Wallet className="h-4 w-4" /> Sobrante del mes
-          </span>
-          <span className={cn("text-xl font-bold tabular-nums", sobrante >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400")}>
-            {sobrante >= 0 ? "+" : "−"}{formatCurrency(Math.abs(sobrante), displayCurrency)}
-          </span>
-        </div>
-      </Card>
-    </div>
-  )
-}
