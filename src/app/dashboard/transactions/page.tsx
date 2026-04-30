@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect } from "react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { createClient } from "@/lib/supabase/client"
@@ -301,6 +301,233 @@ function ReciboDeSueldo({
   )
 }
 
+// ─── Annual / histórico view — all months as columns ─────────────────────────
+function AnualView({
+  userId, displayCurrency, rate,
+}: { userId: string; displayCurrency: "ARS" | "USD"; rate: Rate }) {
+  const [allTxs, setAllTxs] = useState<Tx[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    supabase
+      .from("transactions")
+      .select("*, categories(*)")
+      .eq("user_id", userId)
+      .order("date")
+      .then(({ data }) => {
+        setAllTxs((data as unknown as Tx[]) ?? [])
+        setLoading(false)
+      })
+  }, [userId])
+
+  const monthGroups = useMemo(() => {
+    const groups: Record<string, Tx[]> = {}
+    for (const t of allTxs) {
+      const mk = t.date.substring(0, 7)
+      if (!groups[mk]) groups[mk] = []
+      groups[mk].push(t)
+    }
+    return groups
+  }, [allTxs])
+
+  const months = useMemo(() => Object.keys(monthGroups).sort(), [monthGroups])
+
+  const monthData = useMemo(() =>
+    months.map(mk => {
+      const [y, m] = mk.split("-").map(Number)
+      return {
+        mk,
+        label: format(new Date(y, m - 1, 1), "MMM yy", { locale: es }),
+        income:  aggregateTxs(monthGroups[mk] ?? [], "income",  rate, displayCurrency),
+        expense: aggregateTxs(monthGroups[mk] ?? [], "expense", rate, displayCurrency),
+        saving:  aggregateTxs(monthGroups[mk] ?? [], "saving",  rate, displayCurrency),
+      }
+    }), [months, monthGroups, rate, displayCurrency]
+  )
+
+  const incomeKeys = useMemo(() => {
+    const keys = new Set<string>()
+    monthData.forEach(d => Object.keys(d.income).forEach(k => keys.add(k)))
+    return [...keys].sort((a, b) =>
+      monthData.reduce((s, d) => s + (d.income[b] ?? 0), 0) -
+      monthData.reduce((s, d) => s + (d.income[a] ?? 0), 0)
+    )
+  }, [monthData])
+
+  const expenseKeys = useMemo(() => {
+    const keys = new Set<string>()
+    monthData.forEach(d => Object.keys(d.expense).forEach(k => keys.add(k)))
+    return [...keys].sort((a, b) =>
+      monthData.reduce((s, d) => s + (d.expense[b] ?? 0), 0) -
+      monthData.reduce((s, d) => s + (d.expense[a] ?? 0), 0)
+    )
+  }, [monthData])
+
+  const savingKeys = useMemo(() => {
+    const keys = new Set<string>()
+    monthData.forEach(d => Object.keys(d.saving).forEach(k => keys.add(k)))
+    return [...keys]
+  }, [monthData])
+
+  const currentMk = format(new Date(), "yyyy-MM")
+  const fmt = (v: number) => v > 0 ? formatCurrency(v, displayCurrency) : "—"
+  const FC = "sticky left-0 z-10 border-r"
+
+  if (loading) return <p className="text-sm text-slate-400 py-10 text-center">Cargando historial...</p>
+  if (months.length === 0) return <p className="text-sm text-slate-400 py-10 text-center">Sin datos aún</p>
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+      <table className="text-sm border-collapse">
+        <thead>
+          <tr className="bg-slate-800 text-white">
+            <th className={cn(FC, "bg-slate-800 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider border-slate-600 min-w-[160px] whitespace-nowrap")}>
+              Concepto
+            </th>
+            {monthData.map(({ mk, label }) => (
+              <th key={mk} className={cn(
+                "px-3 py-3 text-right text-xs font-bold uppercase border-r border-slate-600 last:border-r-0 capitalize min-w-[104px] whitespace-nowrap",
+                mk === currentMk && "bg-slate-600"
+              )}>
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {/* ── INGRESOS ── */}
+          <tr>
+            <td colSpan={months.length + 1} className="bg-green-600 text-white px-4 py-1.5 text-xs font-bold uppercase tracking-widest">
+              ↑ Ingresos
+            </td>
+          </tr>
+          {incomeKeys.map((key, idx) => (
+            <tr key={key} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+              <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap")}>
+                {key}
+              </td>
+              {monthData.map(({ mk, income }) => (
+                <td key={mk} className={cn(
+                  "px-3 py-2 text-right font-mono border-r border-slate-100 last:border-r-0 tabular-nums text-xs",
+                  income[key] ? "text-green-700 font-semibold" : "text-slate-300",
+                  mk === currentMk && "bg-green-50"
+                )}>
+                  {fmt(income[key] ?? 0)}
+                </td>
+              ))}
+            </tr>
+          ))}
+          <tr className="bg-green-100 border-t-2 border-green-300">
+            <td className={cn(FC, "bg-green-100 px-4 py-2 text-xs font-bold uppercase text-green-900 border-green-200 whitespace-nowrap")}>
+              Total ingresos
+            </td>
+            {monthData.map(({ mk, income }) => {
+              const tot = Object.values(income).reduce((s, v) => s + v, 0)
+              return (
+                <td key={mk} className={cn(
+                  "px-3 py-2 text-right font-mono font-bold text-green-800 border-r border-green-200 last:border-r-0 tabular-nums text-xs",
+                  mk === currentMk && "bg-green-200/60"
+                )}>
+                  {fmt(tot)}
+                </td>
+              )
+            })}
+          </tr>
+
+          {/* ── EGRESOS ── */}
+          {expenseKeys.length > 0 && <>
+            <tr>
+              <td colSpan={months.length + 1} className="bg-red-600 text-white px-4 py-1.5 text-xs font-bold uppercase tracking-widest">
+                ↓ Egresos
+              </td>
+            </tr>
+            {expenseKeys.map((key, idx) => (
+              <tr key={key} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap")}>
+                  {key}
+                </td>
+                {monthData.map(({ mk, expense }) => (
+                  <td key={mk} className={cn(
+                    "px-3 py-2 text-right font-mono border-r border-slate-100 last:border-r-0 tabular-nums text-xs",
+                    expense[key] ? "text-red-600 font-semibold" : "text-slate-300",
+                    mk === currentMk && "bg-red-50"
+                  )}>
+                    {fmt(expense[key] ?? 0)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr className="bg-red-100 border-t-2 border-red-300">
+              <td className={cn(FC, "bg-red-100 px-4 py-2 text-xs font-bold uppercase text-red-900 border-red-200 whitespace-nowrap")}>
+                Total egresos
+              </td>
+              {monthData.map(({ mk, expense }) => {
+                const tot = Object.values(expense).reduce((s, v) => s + v, 0)
+                return (
+                  <td key={mk} className={cn(
+                    "px-3 py-2 text-right font-mono font-bold text-red-800 border-r border-red-200 last:border-r-0 tabular-nums text-xs",
+                    mk === currentMk && "bg-red-200/60"
+                  )}>
+                    {fmt(tot)}
+                  </td>
+                )
+              })}
+            </tr>
+          </>}
+
+          {/* ── AHORROS ── */}
+          {savingKeys.length > 0 && <>
+            <tr>
+              <td colSpan={months.length + 1} className="bg-blue-600 text-white px-4 py-1.5 text-xs font-bold uppercase tracking-widest">
+                Ahorros
+              </td>
+            </tr>
+            {savingKeys.map((key, idx) => (
+              <tr key={key} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                <td className={cn(FC, idx % 2 === 0 ? "bg-white" : "bg-slate-50", "px-4 py-2 text-slate-700 border-slate-100 whitespace-nowrap")}>
+                  {key}
+                </td>
+                {monthData.map(({ mk, saving }) => (
+                  <td key={mk} className={cn(
+                    "px-3 py-2 text-right font-mono border-r border-slate-100 last:border-r-0 tabular-nums text-xs",
+                    saving[key] ? "text-blue-700 font-semibold" : "text-slate-300",
+                    mk === currentMk && "bg-blue-50"
+                  )}>
+                    {fmt(saving[key] ?? 0)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </>}
+
+          {/* ── SOBRANTE ── */}
+          <tr className="bg-emerald-600 text-white">
+            <td className={cn(FC, "bg-emerald-600 px-4 py-3 font-bold text-sm border-emerald-500 whitespace-nowrap")}>
+              💰 Sobrante
+            </td>
+            {monthData.map(({ mk, income, expense, saving }) => {
+              const tI = Object.values(income).reduce((s, v) => s + v, 0)
+              const tE = Object.values(expense).reduce((s, v) => s + v, 0)
+              const tS = Object.values(saving).reduce((s, v) => s + v, 0)
+              const sob = tI - tE - tS
+              return (
+                <td key={mk} className={cn(
+                  "px-3 py-3 text-right font-mono font-bold tabular-nums text-xs border-r border-emerald-500 last:border-r-0",
+                  sob < 0 ? "text-red-200" : "text-white",
+                  mk === currentMk && "bg-emerald-500"
+                )}>
+                  {sob < 0 ? "−" : ""}{fmt(Math.abs(sob))}
+                </td>
+              )
+            })}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ─── CopyRow — single transaction row inside the copy dialog ─────────────────
 function CopyRow({
   t, selected, onToggle,
@@ -363,7 +590,7 @@ export default function TransactionsPage() {
 
   const now = new Date()
   const [monthOffset, setMonthOffset] = useState(0)
-  const [view, setView] = useState<"lista" | "recibo">("lista")
+  const [viewMode, setViewMode] = useState<"mensual" | "anual">("mensual")
 
   const currentMonth = useMemo(() => {
     const d = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
@@ -580,7 +807,7 @@ export default function TransactionsPage() {
           <Button
             variant="ghost" size="icon" className="h-8 w-8"
             onClick={() => setMonthOffset(p => p + 1)}
-            disabled={monthOffset >= 0}
+            disabled={monthOffset >= 3}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -588,6 +815,24 @@ export default function TransactionsPage() {
 
         {/* Controls */}
         <div className="flex gap-2 flex-wrap items-center">
+          {/* View mode toggle */}
+          <div className="flex gap-1">
+            <Button
+              variant={viewMode === "mensual" ? "default" : "outline"}
+              size="sm" className="h-8 px-3 text-xs"
+              onClick={() => setViewMode("mensual")}
+            >
+              Mensual
+            </Button>
+            <Button
+              variant={viewMode === "anual" ? "default" : "outline"}
+              size="sm" className="h-8 px-3 text-xs"
+              onClick={() => setViewMode("anual")}
+            >
+              Histórico
+            </Button>
+          </div>
+
           {/* Currency toggle */}
           <div className="flex gap-1">
             <Button variant={displayCurrency === "ARS" ? "default" : "outline"} size="sm" className="h-8 px-3 text-xs" onClick={() => setDisplayCurrency("ARS")}>
@@ -837,7 +1082,9 @@ export default function TransactionsPage() {
       </div>
 
       {/* ── Content ────────────────────────────────────────────────────────── */}
-      {loading ? (
+      {viewMode === "anual" ? (
+        <AnualView userId={userId} displayCurrency={displayCurrency} rate={rate} />
+      ) : loading ? (
         <p className="text-sm text-muted-foreground py-8 text-center">Cargando...</p>
       ) : transactions.length === 0 ? (
         <Card>
