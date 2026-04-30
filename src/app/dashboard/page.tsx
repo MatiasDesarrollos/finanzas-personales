@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 import { format, addMonths } from "date-fns"
 import { es } from "date-fns/locale"
 import { createClient } from "@/lib/supabase/client"
-import { useUser, useTransactions, useExchangeRate } from "@/hooks/use-supabase"
+import { useUser, useTransactions, useExchangeRate, useCategories } from "@/hooks/use-supabase"
 import { convertCurrency, formatCurrency } from "@/lib/exchange-rate"
 import {
   TrendingUp, TrendingDown, PiggyBank, Wallet,
@@ -57,7 +57,16 @@ function DeltaPill({
 function QuickAdd({ userId, onSaved }: { userId: string; onSaved: () => void }) {
   const [txType, setTxType] = useState<"income" | "expense">("expense")
   const [amount, setAmount] = useState("")
+  const [categoryId, setCategoryId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const { categories } = useCategories(userId)
+
+  const filteredCats = categories.filter(c => c.type === txType)
+
+  function handleTypeChange(type: "income" | "expense") {
+    setTxType(type)
+    setCategoryId(null)
+  }
 
   async function handleSave() {
     const amt = parseFloat(amount.replace(",", "."))
@@ -69,9 +78,11 @@ function QuickAdd({ userId, onSaved }: { userId: string; onSaved: () => void }) 
       amount: amt,
       currency: "ARS",
       date: format(new Date(), "yyyy-MM-dd"),
+      ...(categoryId ? { category_id: categoryId } : {}),
       is_recurring: false,
     })
     setAmount("")
+    setCategoryId(null)
     setSaving(false)
     onSaved()
   }
@@ -81,7 +92,7 @@ function QuickAdd({ userId, onSaved }: { userId: string; onSaved: () => void }) 
       {/* Type toggle */}
       <div className="grid grid-cols-2 gap-2">
         <button
-          onClick={() => setTxType("income")}
+          onClick={() => handleTypeChange("income")}
           className={cn(
             "py-2.5 rounded-xl text-sm font-bold transition-all",
             txType === "income"
@@ -92,7 +103,7 @@ function QuickAdd({ userId, onSaved }: { userId: string; onSaved: () => void }) 
           + Cargar ingreso
         </button>
         <button
-          onClick={() => setTxType("expense")}
+          onClick={() => handleTypeChange("expense")}
           className={cn(
             "py-2.5 rounded-xl text-sm font-bold transition-all",
             txType === "expense"
@@ -103,6 +114,28 @@ function QuickAdd({ userId, onSaved }: { userId: string; onSaved: () => void }) 
           − Cargar egreso
         </button>
       </div>
+
+      {/* Category chips */}
+      {filteredCats.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: "none" }}>
+          {filteredCats.map(cat => (
+            <button
+              key={cat.id}
+              onClick={() => setCategoryId(cat.id === categoryId ? null : cat.id)}
+              className={cn(
+                "shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all",
+                categoryId === cat.id
+                  ? txType === "income"
+                    ? "bg-green-500 text-white border-green-500"
+                    : "bg-red-500 text-white border-red-500"
+                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+              )}
+            >
+              {cat.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Amount row */}
       <div className="flex gap-2">
@@ -131,7 +164,7 @@ function QuickAdd({ userId, onSaved }: { userId: string; onSaved: () => void }) 
         </button>
       </div>
       <p className="text-xs text-slate-400 text-center">
-        Para más opciones (categoría, fecha, descripción) usá el botón <strong>+</strong>
+        Para más opciones (fecha, descripción) usá el botón <strong>+</strong>
       </p>
     </div>
   )
@@ -250,8 +283,8 @@ export default function DashboardPage() {
         </div>
         <button
           onClick={() => setMonthOffset(o => o + 1)}
-          disabled={monthOffset >= 0}
-          className={cn("p-2 rounded-xl hover:bg-slate-100 transition-colors", monthOffset >= 0 && "opacity-30")}
+          disabled={monthOffset >= 3}
+          className={cn("p-2 rounded-xl hover:bg-slate-100 transition-colors", monthOffset >= 3 && "opacity-30")}
         >
           <ChevronRight className="h-5 w-5 text-slate-600" />
         </button>
